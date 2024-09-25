@@ -13,24 +13,19 @@ struct ARPlacementView: View {
             
             VStack {
                 Spacer()
-                Image(uiImage: loadImage(index: imageIndex))
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: UIScreen.main.bounds.width * 0.15, height: UIScreen.main.bounds.width * 0.15)
-                    .background(Color.white.opacity(0.5))
+                Text("Tap on a blue plane to place the image")
+                    .foregroundColor(.white)
+                    .padding()
+                    .background(Color.black.opacity(0.7))
                     .cornerRadius(10)
-                Spacer()
+                Spacer().frame(height: 50)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             arViewModel.startARSession()
+            arViewModel.setSelectedImage(imageIndex: imageIndex)
         }
-    }
-    
-    private func loadImage(index: Int) -> UIImage {
-        let imageName = String(format: "image_%04d", index)
-        return UIImage(named: imageName) ?? UIImage(systemName: "photo")!
     }
 }
 
