@@ -37,14 +37,12 @@ class ARViewModel: NSObject, ObservableObject {
     }
     
     func setSelectedImage(imageIndex: Int) {
-        guard let texture = try? TextureResource.load(named: String(format: "image_%04d", imageIndex)) else {
-            print("Failed to load image")
-            return
-        }
+        var material = SimpleMaterial()
+        material.color = .init(tint: .white.withAlphaComponent(0.99), texture: .init(try! .load(named: String(format: "image_%04d", imageIndex))))
+        imageMaterial = material;
         
-        imageMaterial = SimpleMaterial(color: .white, roughness: 0.0, isMetallic: false)
-        imageMaterial?.baseColor = MaterialColorParameter.texture(texture)
     }
+    
     
     @objc func handleTap(_ gesture: UITapGestureRecognizer) {
         guard let arView = arView else { return }
@@ -55,6 +53,7 @@ class ARViewModel: NSObject, ObservableObject {
             placeImage(at: result)
         }
     }
+    
     
     func placeImage(at result: ARRaycastResult) {
         guard let arView = arView, let material = imageMaterial else { return }
@@ -70,6 +69,9 @@ class ARViewModel: NSObject, ObservableObject {
         // Create a plane to display the image
         let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
         let imageEntity = ModelEntity(mesh: mesh, materials: [material])
+        
+        // Enable double-sided rendering for transparency
+        imageEntity.model?.materials = [material, material]
         
         // Add the image entity to the anchor
         anchor.addChild(imageEntity)
