@@ -5,7 +5,7 @@ import ARKit
 class ARViewModel: NSObject, ObservableObject {
     @Published var arView: ARView?
     private var imageAnchor: AnchorEntity?
-    private var imageMaterial: SimpleMaterial?
+    private var imageMaterial: UnlitMaterial?
     
     override init() {
         super.init()
@@ -37,12 +37,11 @@ class ARViewModel: NSObject, ObservableObject {
     }
     
     func setSelectedImage(imageIndex: Int) {
-        var material = SimpleMaterial()
-        material.color = .init(tint: .white.withAlphaComponent(0.99), texture: .init(try! .load(named: String(format: "image_%04d", imageIndex))))
+        var material = UnlitMaterial()
+        material.color = .init(tint: UIColor.white.withAlphaComponent(0.99), texture: .init(try! .load(named: String(format: "image_%04d", imageIndex))))
+        material.tintColor = UIColor.white.withAlphaComponent(0.99)//F# despite being deprecated this actually honors the alpha where the above does not
         imageMaterial = material;
-        
     }
-    
     
     @objc func handleTap(_ gesture: UITapGestureRecognizer) {
         guard let arView = arView else { return }
@@ -87,15 +86,13 @@ class ARViewModel: NSObject, ObservableObject {
 extension ARViewModel: ARSessionDelegate {
     func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
         for anchor in anchors {
-            if let planeAnchor = anchor as? ARPlaneAnchor {
-                let planeMesh = MeshResource.generatePlane(width: planeAnchor.extent.x, depth: planeAnchor.extent.z)
-                let material = SimpleMaterial(color: .blue.withAlphaComponent(0.5), isMetallic: false)
-                let planeEntity = ModelEntity(mesh: planeMesh, materials: [material])
+            if anchor is ARPlaneAnchor {
+                // A plane has been detected
+                print("New plane detected")
                 
-                let anchorEntity = AnchorEntity(anchor: planeAnchor)
-                anchorEntity.addChild(planeEntity)
-                
-                arView?.scene.addAnchor(anchorEntity)
+                // You can add any non-visual logic here if needed
+                // For example, you might want to update some internal state
+                // or trigger some other functionality when a new plane is detected
             }
         }
     }
