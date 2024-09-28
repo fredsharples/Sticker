@@ -21,7 +21,7 @@ struct ContentView: View {
                 }
                 .padding()
             }
-            .navigationTitle("AR Objects")
+            .navigationTitle("Choose your sticker")
         }
     }
     
