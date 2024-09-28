@@ -13,7 +13,7 @@ struct ARPlacementView: View {
             
             VStack {
                 Spacer()
-                Text("Tap on a blue plane to place the image")
+                Text("Tap to drop your sticker")
                     .foregroundColor(.white)
                     .padding()
                     .background(Color.black.opacity(0.7))
