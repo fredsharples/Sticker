@@ -24,7 +24,8 @@ struct ARPlacementView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             arViewModel.startARSession()
-            arViewModel.setSelectedImage(imageIndex: imageIndex)
+            //arViewModel.setSelectedImage(imageIndex: imageIndex)
+            arViewModel.changeSelectedImage(imageIndex: imageIndex)
         }
     }
 }

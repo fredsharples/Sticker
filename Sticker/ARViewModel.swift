@@ -7,6 +7,12 @@ class ARViewModel: NSObject, ObservableObject {
     private var imageAnchor: AnchorEntity?
     private var imageMaterial: UnlitMaterial?
     
+    @Published var placedStickersCount: Int = 0
+    private var stickers: [AnchorEntity] = []
+    private var currentImageIndex: Int = 1
+    private let maxStickers = 100
+    
+    
     override init() {
         super.init()
         setupARView()
@@ -36,6 +42,11 @@ class ARViewModel: NSObject, ObservableObject {
         arView.session.run(config, options: [.removeExistingAnchors, .resetTracking])
     }
     
+    func changeSelectedImage(imageIndex: Int) {
+        currentImageIndex = imageIndex
+        setSelectedImage(imageIndex: imageIndex)
+    }
+    
     func setSelectedImage(imageIndex: Int) {
         var material = UnlitMaterial()
         material.color = .init(tint: UIColor.white.withAlphaComponent(0.99), texture: .init(try! .load(named: String(format: "image_%04d", imageIndex))))
@@ -57,10 +68,10 @@ class ARViewModel: NSObject, ObservableObject {
     func placeImage(at result: ARRaycastResult) {
         guard let arView = arView, let material = imageMaterial else { return }
         
-        // Remove existing image anchor if any
-        if let existingAnchor = imageAnchor {
-            arView.scene.removeAnchor(existingAnchor)
-        }
+        if stickers.count >= maxStickers {
+                       print("Maximum number of stickers reached")
+                       return
+                   }
         
         // Create a new anchor at the tap location
         let anchor = AnchorEntity(raycastResult: result)
@@ -80,7 +91,21 @@ class ARViewModel: NSObject, ObservableObject {
         
         // Store the new anchor
         imageAnchor = anchor
+        
+        // Store the new anchor
+                    stickers.append(anchor)
+                    placedStickersCount = stickers.count
     }
+    
+    func clearAllStickers() {
+                guard let arView = arView else { return }
+                for sticker in stickers {
+                    arView.scene.removeAnchor(sticker)
+                }
+                stickers.removeAll()
+                placedStickersCount = 0
+            }
+    
 }
 
 extension ARViewModel: ARSessionDelegate {
