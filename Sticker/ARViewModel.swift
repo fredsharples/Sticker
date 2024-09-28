@@ -7,34 +7,54 @@ class ARViewModel: NSObject, ObservableObject {
     private var imageAnchor: AnchorEntity?
     private var imageMaterial: UnlitMaterial?
     
+    @Published var placedStickersCount: Int = 0
+        private var stickers: [AnchorEntity] = []
+        private var currentImageIndex: Int = 1
+        private let maxStickers = 100
+    
+    
     override init() {
         super.init()
+        print("ARViewModel initialized")
         setupARView()
     }
     
     func setupARView() {
-        let arView = ARView(frame: .zero)
-        self.arView = arView
-        arView.session.delegate = self
-        
-        // Add tap gesture recognizer
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        arView.addGestureRecognizer(tapGesture)
-    }
+        print("Setting up ARView")
+            let arView = ARView(frame: .zero)
+            self.arView = arView
+            
+            // Add tap gesture recognizer
+            let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+            arView.addGestureRecognizer(tapGesture)
+            
+            // Start the AR session immediately
+            startARSession()
+        }
     
     func startARSession() {
-        guard let arView = arView else { return }
-        
-        let config = ARWorldTrackingConfiguration()
-        config.planeDetection = [.horizontal, .vertical]
-        config.environmentTexturing = .automatic
-        
-        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-            config.sceneReconstruction = .mesh
+        print("Starting AR Session")
+        guard let arView = arView else {
+            print("ARView is nil, cannot start session")
+            return
         }
-        
-        arView.session.run(config, options: [.removeExistingAnchors, .resetTracking])
-    }
+            
+            let config = ARWorldTrackingConfiguration()
+            config.planeDetection = [.horizontal, .vertical]
+            config.environmentTexturing = .automatic
+            
+            if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+                config.sceneReconstruction = .mesh
+            }
+            
+            arView.session.run(config, options: [.removeExistingAnchors, .resetTracking])
+        }
+    
+    
+    func changeSelectedImage(imageIndex: Int) {
+            currentImageIndex = imageIndex
+            setSelectedImage(imageIndex: imageIndex)
+        }
     
     func setSelectedImage(imageIndex: Int) {
         var material = UnlitMaterial()
@@ -44,56 +64,65 @@ class ARViewModel: NSObject, ObservableObject {
     }
     
     @objc func handleTap(_ gesture: UITapGestureRecognizer) {
-        guard let arView = arView else { return }
-        
-        let location = gesture.location(in: arView)
-        
-        if let result = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any).first {
-            placeImage(at: result)
+            guard let arView = arView else { return }
+            
+            let location = gesture.location(in: arView)
+            
+            if let result = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any).first {
+                placeImage(at: result)
+            }
         }
-    }
     
     
     func placeImage(at result: ARRaycastResult) {
-        guard let arView = arView, let material = imageMaterial else { return }
-        
-        // Remove existing image anchor if any
-        if let existingAnchor = imageAnchor {
-            arView.scene.removeAnchor(existingAnchor)
+            guard let arView = arView, let material = imageMaterial else { return }
+            
+            if stickers.count >= maxStickers {
+                print("Maximum number of stickers reached")
+                return
+            }
+            
+            // Create a new anchor at the tap location
+            let anchor = AnchorEntity(raycastResult: result)
+            
+            // Create a plane to display the image
+            let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
+            let imageEntity = ModelEntity(mesh: mesh, materials: [material])
+            
+            // Enable double-sided rendering for transparency
+            imageEntity.model?.materials = [material, material]
+            
+            // Add the image entity to the anchor
+            anchor.addChild(imageEntity)
+            
+            // Add the anchor to the scene
+            arView.scene.addAnchor(anchor)
+            
+            // Store the new anchor
+            stickers.append(anchor)
+            placedStickersCount = stickers.count
         }
-        
-        // Create a new anchor at the tap location
-        let anchor = AnchorEntity(raycastResult: result)
-        
-        // Create a plane to display the image
-        let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
-        let imageEntity = ModelEntity(mesh: mesh, materials: [material])
-        
-        // Enable double-sided rendering for transparency
-        imageEntity.model?.materials = [material, material]
-        
-        // Add the image entity to the anchor
-        anchor.addChild(imageEntity)
-        
-        // Add the anchor to the scene
-        arView.scene.addAnchor(anchor)
-        
-        // Store the new anchor
-        imageAnchor = anchor
-    }
+    
+    func clearAllStickers() {
+            guard let arView = arView else { return }
+            for sticker in stickers {
+                arView.scene.removeAnchor(sticker)
+            }
+            stickers.removeAll()
+            placedStickersCount = 0
+        }
 }
 
 extension ARViewModel: ARSessionDelegate {
-    func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
-        for anchor in anchors {
-            if anchor is ARPlaneAnchor {
-                // A plane has been detected
-                print("New plane detected")
-                
-                // You can add any non-visual logic here if needed
-                // For example, you might want to update some internal state
-                // or trigger some other functionality when a new plane is detected
-            }
-        }
+    func session(_ session: ARSession, didFailWithError error: Error) {
+        print("AR Session failed with error: \(error.localizedDescription)")
+    }
+    
+    func sessionWasInterrupted(_ session: ARSession) {
+        print("AR Session was interrupted")
+    }
+    
+    func sessionInterruptionEnded(_ session: ARSession) {
+        print("AR Session interruption ended")
     }
 }
