@@ -4,7 +4,7 @@ import ARKit
 
 struct ARPlacementView: View {
     let imageIndex: Int
-    @StateObject private var arViewModel = ARViewModel()
+    @ObservedObject var arViewModel: ARViewModel
     
     var body: some View {
         ZStack {
@@ -19,13 +19,23 @@ struct ARPlacementView: View {
                     .background(Color.black.opacity(0.7))
                     .cornerRadius(10)
                 Spacer().frame(height: 50)
+                Button("Clear All") {
+                                       arViewModel.clearAllStickers()
+                                   }
+                                   .foregroundColor(.white)
+                                   .padding()
+                                   .background(Color.red.opacity(0.7))
+                                   .cornerRadius(10)
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            arViewModel.startARSession()
-            //arViewModel.setSelectedImage(imageIndex: imageIndex)
-            arViewModel.changeSelectedImage(imageIndex: imageIndex)
+        .navigationBarTitleDisplayMode(.inline)            
+            .onAppear {
+                       arViewModel.setSelectedImage(imageIndex: imageIndex)
+                       if arViewModel.arView == nil {
+                           arViewModel.startARSession()
+                       } else {
+                           arViewModel.restorePlacedStickers()
+                       }
         }
     }
 }

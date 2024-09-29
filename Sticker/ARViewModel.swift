@@ -7,9 +7,11 @@ class ARViewModel: NSObject, ObservableObject {
     private var imageAnchor: AnchorEntity?
     private var imageMaterial: UnlitMaterial?
     
+    private var placedStickers: [(UUID, Int)] = []
+    
     @Published var placedStickersCount: Int = 0
     private var stickers: [AnchorEntity] = []
-    private var currentImageIndex: Int = 1
+    private var currentStickerIndex: Int = 1
     private let maxStickers = 100
     
     
@@ -22,8 +24,7 @@ class ARViewModel: NSObject, ObservableObject {
         let arView = ARView(frame: .zero)
         self.arView = arView
         arView.session.delegate = self
-        
-        // Add tap gesture recognizer
+
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         arView.addGestureRecognizer(tapGesture)
     }
@@ -40,72 +41,76 @@ class ARViewModel: NSObject, ObservableObject {
         }
         
         arView.session.run(config, options: [.removeExistingAnchors, .resetTracking])
-    }
-    
-    func changeSelectedImage(imageIndex: Int) {
-        currentImageIndex = imageIndex
-        setSelectedImage(imageIndex: imageIndex)
+        restorePlacedStickers()
     }
     
     func setSelectedImage(imageIndex: Int) {
-        var material = UnlitMaterial()
-        material.color = .init(tint: UIColor.white.withAlphaComponent(0.99), texture: .init(try! .load(named: String(format: "image_%04d", imageIndex))))
-        material.tintColor = UIColor.white.withAlphaComponent(0.99)//F# despite being deprecated this actually honors the alpha where the above does not
-        imageMaterial = material;
+        currentStickerIndex = imageIndex
+        imageMaterial = createMaterialForImage(imageIndex: imageIndex);
     }
     
     @objc func handleTap(_ gesture: UITapGestureRecognizer) {
         guard let arView = arView else { return }
-        
         let location = gesture.location(in: arView)
-        
         if let result = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any).first {
-            placeImage(at: result)
+            placeSticker(at: result)
         }
     }
     
+    private func createMaterialForImage(imageIndex: Int) -> UnlitMaterial? {
+        var material = UnlitMaterial()
+        material.color = .init(tint: UIColor.white.withAlphaComponent(0.99), texture: .init(try! .load(named: String(format: "image_%04d", imageIndex))))
+        material.tintColor = UIColor.white.withAlphaComponent(0.99)//F# despite being deprecated this actually honors the alpha where the above does not
+        return material
+    }
     
-    func placeImage(at result: ARRaycastResult) {
-        guard let arView = arView, let material = imageMaterial else { return }
+    func placeSticker(at result: ARRaycastResult) {
+        guard let arView = arView else { return }
         
-        if stickers.count >= maxStickers {
-                       print("Maximum number of stickers reached")
-                       return
-                   }
+        if placedStickers.count >= maxStickers {
+            print("Maximum number of images reached")
+            return
+        }
         
-        // Create a new anchor at the tap location
-        let anchor = AnchorEntity(raycastResult: result)
+        let anchor = ARAnchor(name: "ImageAnchor", transform: result.worldTransform)
+        arView.session.add(anchor: anchor)
         
-        // Create a plane to display the image
+        placedStickers.append((anchor.identifier, currentStickerIndex))
+        placedStickersCount = placedStickers.count
+        
+        addStickerToScene(anchor: anchor, imageIndex: currentStickerIndex)
+    }
+    
+    
+    private func addStickerToScene(anchor: ARAnchor, imageIndex: Int) {
+        guard let arView = arView, let material = createMaterialForImage(imageIndex: imageIndex) else { return }
+        let anchorEntity = AnchorEntity(anchor: anchor)
         let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
         let imageEntity = ModelEntity(mesh: mesh, materials: [material])
-        
-        // Enable double-sided rendering for transparency
-        imageEntity.model?.materials = [material, material]
-        
-        // Add the image entity to the anchor
-        anchor.addChild(imageEntity)
-        
-        // Add the anchor to the scene
-        arView.scene.addAnchor(anchor)
-        
-        // Store the new anchor
-        imageAnchor = anchor
-        
-        // Store the new anchor
-                    stickers.append(anchor)
-                    placedStickersCount = stickers.count
+        anchorEntity.addChild(imageEntity)
+        arView.scene.addAnchor(anchorEntity)
     }
     
     func clearAllStickers() {
-                guard let arView = arView else { return }
-                for sticker in stickers {
-                    arView.scene.removeAnchor(sticker)
-                }
-                stickers.removeAll()
-                placedStickersCount = 0
+        guard let arView = arView else { return }
+        for (anchorID, _) in placedStickers {
+            if let anchor = arView.session.currentFrame?.anchors.first(where: { $0.identifier == anchorID }) {
+                arView.session.remove(anchor: anchor)
             }
+        }
+        placedStickers.removeAll()
+        placedStickersCount = 0
+    }
     
+    func restorePlacedStickers() {
+        guard let arView = arView else { return }
+        
+        for (anchorID, imageIndex) in placedStickers{
+            if let anchor = arView.session.currentFrame?.anchors.first(where: { $0.identifier == anchorID }) {
+                addStickerToScene(anchor: anchor, imageIndex: imageIndex)
+            }
+        }
+    }
 }
 
 extension ARViewModel: ARSessionDelegate {
@@ -115,9 +120,9 @@ extension ARViewModel: ARSessionDelegate {
                 // A plane has been detected
                 print("New plane detected")
                 
-                // You can add any non-visual logic here if needed
-                // For example, you might want to update some internal state
-                // or trigger some other functionality when a new plane is detected
+                if let imageAnchor = placedStickers.first(where: { $0.0 == anchor.identifier }) {
+                    addStickerToScene(anchor: anchor, imageIndex: imageAnchor.1)
+                }
             }
         }
     }

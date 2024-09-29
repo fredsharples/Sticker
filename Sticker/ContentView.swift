@@ -3,13 +3,14 @@ import SwiftUI
 struct ContentView: View {
     let columns: [GridItem] = Array(repeating: .init(.flexible()), count: 3)
     let imageCount = 12 // Total number of images to display
+    let arViewModel = ARViewModel()
     
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(1...imageCount, id: \.self) { index in
-                        NavigationLink(destination: ARPlacementView(imageIndex: index)) {
+                        NavigationLink(destination: ARPlacementView(imageIndex: index, arViewModel: arViewModel)) {
                             Image(uiImage: loadImage(index: index))
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
