@@ -19,6 +19,16 @@ struct ARPlacementView: View {
                     .background(Color.black.opacity(0.7))
                     .cornerRadius(10)
                 Spacer().frame(height: 50)
+                    .padding()
+                    Button(action: savePlacedStickers) {
+                        Text("Save")
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                Spacer().frame(height: 50)
+                    .padding()
                 Button("Clear All") {
                                        arViewModel.clearAllStickers()
                                    }
@@ -37,6 +47,10 @@ struct ARPlacementView: View {
                            arViewModel.restorePlacedStickers()
                        }
         }
+    }
+    func savePlacedStickers() {
+        arViewModel.savePlacedStickers()
+        
     }
 }
 

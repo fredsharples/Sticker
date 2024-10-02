@@ -3,7 +3,8 @@ import SwiftUI
 struct ContentView: View {
     let columns: [GridItem] = Array(repeating: .init(.flexible()), count: 3)
     let imageCount = 12 // Total number of images to display
-    let arViewModel = ARViewModel()
+    @StateObject private var arViewModel = ARViewModel()
+    
     
     var body: some View {
         NavigationStack {
@@ -21,9 +22,27 @@ struct ContentView: View {
                     }
                 }
                 .padding()
+                Button(action: savePlacedStickers) {
+                    Text("Save")
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                
+                .padding()
+                
+                
+                
             }
+            
+            
             .navigationTitle("Choose your sticker")
         }
+    }
+    
+    func savePlacedStickers() {
+        arViewModel.savePlacedStickers()
     }
     
     func loadImage(index: Int) -> UIImage {
@@ -35,6 +54,8 @@ struct ContentView: View {
             return UIImage(systemName: "photo") ?? UIImage()
         }
     }
+    
+    
 }
 
 struct ContentView_Previews: PreviewProvider {

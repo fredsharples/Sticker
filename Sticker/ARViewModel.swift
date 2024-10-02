@@ -4,6 +4,9 @@ import ARKit
 
 class ARViewModel: NSObject, ObservableObject {
     @Published var arView: ARView?
+    
+    let firebaseManager = FirebaseManager();
+    
     private var imageAnchor: AnchorEntity?
     private var imageMaterial: UnlitMaterial?
     
@@ -17,14 +20,15 @@ class ARViewModel: NSObject, ObservableObject {
     
     override init() {
         super.init()
-        setupARView()
+        setupARView();
+        firebaseManager.loginFirebase()
     }
     
     func setupARView() {
         let arView = ARView(frame: .zero)
         self.arView = arView
         arView.session.delegate = self
-
+        
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         arView.addGestureRecognizer(tapGesture)
     }
@@ -38,10 +42,16 @@ class ARViewModel: NSObject, ObservableObject {
         
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
             config.sceneReconstruction = .mesh
-        }
+        }    
+        
         
         arView.session.run(config, options: [.removeExistingAnchors, .resetTracking])
-        restorePlacedStickers()
+        if(stickers.isEmpty){
+            retreivePlacedStickers()
+        }else{
+            restorePlacedStickers()
+        }
+        
     }
     
     func setSelectedImage(imageIndex: Int) {
@@ -71,10 +81,11 @@ class ARViewModel: NSObject, ObservableObject {
             print("Maximum number of images reached")
             return
         }
-        
+        //let anchorEntity = AnchorEntity(anchor: anchor)
         let anchor = ARAnchor(name: "ImageAnchor", transform: result.worldTransform)
+        let anchorEntity = AnchorEntity(anchor: anchor)
         arView.session.add(anchor: anchor)
-        
+        stickers.append(anchorEntity)
         placedStickers.append((anchor.identifier, currentStickerIndex))
         placedStickersCount = placedStickers.count
         
@@ -89,6 +100,7 @@ class ARViewModel: NSObject, ObservableObject {
         let imageEntity = ModelEntity(mesh: mesh, materials: [material])
         anchorEntity.addChild(imageEntity)
         arView.scene.addAnchor(anchorEntity)
+        
     }
     
     func clearAllStickers() {
@@ -111,7 +123,52 @@ class ARViewModel: NSObject, ObservableObject {
             }
         }
     }
+    
+    func savePlacedStickers() {
+        print("Save placed stickers called")
+        AuthManager.shared.signInAnonymously { result in
+            switch result {
+            case .success(let user):
+                print("User signed in anonymously with ID: \(user.uid)")
+                
+                self.firebaseManager.saveAnchorEntities(self.stickers, completion: { result in
+                    switch result {
+                    case .success:
+                        print("Anchors saved successfully")
+                    case .failure(let error):
+                        print("Error saving anchors: \(error.localizedDescription)")
+                    }
+                })
+            case .failure(let error):
+                print("Error signing in: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func retreivePlacedStickers() {
+        AuthManager.shared.signInAnonymously { result in
+            switch result {
+            case .success(let user):
+                print("User signed in anonymously with ID: \(user.uid)")
+                self.firebaseManager.loadAnchorEntities { result in
+                                    switch result {
+                                    case .success(let loadedAnchors):
+                                        DispatchQueue.main.async {
+                                            self.stickers = loadedAnchors
+                                        }
+                                        print("Anchors loaded successfully")
+                                    case .failure(let error):
+                                        print("Error loading anchors: \(error.localizedDescription)")
+                                    }
+                                }
+            case .failure(let error):
+                print("Error signing in: \(error.localizedDescription)")
+            }
+        }
+    }
+    
 }
+
 
 extension ARViewModel: ARSessionDelegate {
     func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
@@ -127,3 +184,5 @@ extension ARViewModel: ARSessionDelegate {
         }
     }
 }
+
+
