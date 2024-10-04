@@ -7,17 +7,17 @@
       <BreakpointProxy
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
-            uuid = "2CC4B93A-AB75-4BDA-826E-93F583BC23F5"
-            shouldBeEnabled = "Yes"
+            uuid = "C2F708AA-E404-497F-A1DF-70637AA361B7"
+            shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "Sticker/ARViewModel.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "86"
-            endingLineNumber = "86"
-            landmarkName = "placeSticker(at:)"
-            landmarkType = "7">
+            startingLineNumber = "185"
+            endingLineNumber = "185"
+            landmarkName = "ARViewModel"
+            landmarkType = "3">
          </BreakpointContent>
       </BreakpointProxy>
    </Breakpoints>

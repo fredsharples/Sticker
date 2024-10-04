@@ -22,16 +22,23 @@ struct ContentView: View {
                     }
                 }
                 .padding()
-                Button(action: savePlacedStickers) {
+                Button(action: arViewModel.saveCurrentAnchor) {
                     Text("Save")
                         .padding()
                         .background(Color.blue)
                         .foregroundColor(.white)
                         .cornerRadius(10)
                 }
-                
                 .padding()
-                
+                Button(action: {
+                    arViewModel.loadSavedAnchors()
+                }) {
+                    Text("Load Anchors")
+                        .padding()
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
                 
                 
             }
@@ -57,6 +64,15 @@ struct ContentView: View {
     
     
 }
+//struct ARViewContainer: UIViewRepresentable {
+//    @ObservedObject var arViewModel: ARViewModel
+//    
+//    func makeUIView(context: Context) -> ARView {
+//        return arViewModel.arView
+//    }
+//    
+//    func updateUIView(_ uiView: ARView, context: Context) {}
+//}
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {

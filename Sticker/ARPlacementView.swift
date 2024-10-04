@@ -27,10 +27,18 @@ struct ARPlacementView: View {
                             .foregroundColor(.white)
                             .cornerRadius(10)
                     }
-                Spacer().frame(height: 50)
                     .padding()
+                Button(action: arViewModel.loadSavedAnchors) {
+                    Text("Load")
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                .padding()
+                
                 Button("Clear All") {
-                                       arViewModel.clearAllStickers()
+                                      // arViewModel.clearAllStickers()
                                    }
                                    .foregroundColor(.white)
                                    .padding()
@@ -40,12 +48,12 @@ struct ARPlacementView: View {
         }
         .navigationBarTitleDisplayMode(.inline)            
             .onAppear {
-                       arViewModel.setSelectedImage(imageIndex: imageIndex)
-                       if arViewModel.arView == nil {
-                           arViewModel.startARSession()
-                       } else {
-                           arViewModel.restorePlacedStickers()
-                       }
+//                       arViewModel.setSelectedImage(imageIndex: imageIndex)
+//                       if arViewModel.arView == nil {
+//                           arViewModel.startARSession()
+//                       } else {
+//                           arViewModel.restorePlacedStickers()
+//                       }
         }
     }
     func savePlacedStickers() {
@@ -58,7 +66,7 @@ struct ARViewContainer: UIViewRepresentable {
     @ObservedObject var arViewModel: ARViewModel
     
     func makeUIView(context: Context) -> ARView {
-        return arViewModel.arView!
+        return arViewModel.arView
     }
     
     func updateUIView(_ uiView: ARView, context: Context) {}
