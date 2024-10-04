@@ -15,7 +15,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     
     @Published var placedStickersCount: Int = 0
     private var stickers: [AnchorEntity] = []
-    private var currentStickerIndex: Int = 1
+    private var currentImageIndex: Int = 1
     private let maxStickers = 100
     
     
@@ -65,29 +65,28 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     private func createModelEntity() -> ModelEntity {
         
         let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
-        //let imageEntity = ModelEntity(mesh: mesh, materials: [material])
+        var material = UnlitMaterial()
+        material.color = .init(tint: UIColor.white.withAlphaComponent(0.99), texture: .init(try! .load(named: String(format: "image_%04d", currentImageIndex))))
+        material.tintColor = UIColor.white.withAlphaComponent(0.99)//F# despite being deprecated this actually honors the alpha where the above does not
         
         
-           //let mesh = MeshResource.generateBox(size: 0.1)
-           let material = SimpleMaterial(color: .red, isMetallic: false)
-           let modelEntity = ModelEntity(mesh: mesh, materials: [material])
+        let modelEntity = ModelEntity(mesh: mesh, materials: [material])
         
            return modelEntity
        }
     
     func setSelectedImage(imageIndex: Int) {
-        currentStickerIndex = imageIndex
-        imageMaterial = createMaterialForImage(imageIndex: imageIndex);
+        currentImageIndex = imageIndex
+       // imageMaterial = createMaterialForImage();
     }
     
-    
-    
-    private func createMaterialForImage(imageIndex: Int) -> UnlitMaterial? {
+    private func createMaterialForImage() -> UnlitMaterial? {
         var material = UnlitMaterial()
-        material.color = .init(tint: UIColor.white.withAlphaComponent(0.99), texture: .init(try! .load(named: String(format: "image_%04d", imageIndex))))
+        material.color = .init(tint: UIColor.white.withAlphaComponent(0.99), texture: .init(try! .load(named: String(format: "image_%04d", currentImageIndex))))
         material.tintColor = UIColor.white.withAlphaComponent(0.99)//F# despite being deprecated this actually honors the alpha where the above does not
         return material
     }
+    
     func saveCurrentAnchor() {
             guard let lastAnchor = arView.session.currentFrame?.anchors.last else {
                 print("No anchor to save.")
@@ -202,16 +201,16 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
 //        
 //    }
     
-//    func clearAllStickers() {
-//        guard let arView = arView else { return }
-//        for (anchorID, _) in placedStickers {
-//            if let anchor = arView.session.currentFrame?.anchors.first(where: { $0.identifier == anchorID }) {
-//                arView.session.remove(anchor: anchor)
-//            }
-//        }
-//        placedStickers.removeAll()
-//        placedStickersCount = 0
-//    }
+    func clearAllStickers() {
+        
+        for (anchorID, _) in placedStickers {
+            if let anchor = arView.session.currentFrame?.anchors.first(where: { $0.identifier == anchorID }) {
+                arView.session.remove(anchor: anchor)
+            }
+        }
+        placedStickers.removeAll()
+        placedStickersCount = 0
+    }
     
 //    func restorePlacedStickers() {
 //        guard let arView = arView else { return }
