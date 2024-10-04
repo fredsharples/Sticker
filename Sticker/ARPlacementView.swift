@@ -20,7 +20,7 @@ struct ARPlacementView: View {
                     .cornerRadius(10)
                 Spacer().frame(height: 50)
                     .padding()
-                    Button(action: savePlacedStickers) {
+                Button(action: arViewModel.saveCurrentAnchor) {
                         Text("Save")
                             .padding()
                             .background(Color.blue)
@@ -48,7 +48,7 @@ struct ARPlacementView: View {
         }
         .navigationBarTitleDisplayMode(.inline)            
             .onAppear {
-//                       arViewModel.setSelectedImage(imageIndex: imageIndex)
+                       arViewModel.setSelectedImage(imageIndex: imageIndex)
 //                       if arViewModel.arView == nil {
 //                           arViewModel.startARSession()
 //                       } else {
@@ -56,10 +56,10 @@ struct ARPlacementView: View {
 //                       }
         }
     }
-    func savePlacedStickers() {
-        arViewModel.savePlacedStickers()
-        
-    }
+//    func savePlacedStickers() {
+//        arViewModel.savePlacedStickers()
+//        
+   // }
 }
 
 struct ARViewContainer: UIViewRepresentable {

@@ -48,9 +48,9 @@ struct ContentView: View {
         }
     }
     
-    func savePlacedStickers() {
-        arViewModel.savePlacedStickers()
-    }
+//    func savePlacedStickers() {
+//        arViewModel.savePlacedStickers()
+//    }
     
     func loadImage(index: Int) -> UIImage {
         let imageName = String(format: "image_%04d", index)
