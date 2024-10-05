@@ -12,13 +12,12 @@ struct ARPlacementView: View {
                 .edgesIgnoringSafeArea(.all)
             
             VStack {
-                Spacer()
+                Spacer().frame(height: 50)
                 Text("Tap to drop your sticker")
                     .foregroundColor(.white)
                     .padding()
                     .background(Color.black.opacity(0.7))
                     .cornerRadius(10)
-                Spacer().frame(height: 50)
                     .padding()
                 Button(action: arViewModel.saveCurrentAnchor) {
                         Text("Save")
@@ -36,9 +35,8 @@ struct ARPlacementView: View {
                         .cornerRadius(10)
                 }
                 .padding()
-                
                 Button("Clear All") {
-                                      // arViewModel.clearAllStickers()
+                                       arViewModel.clearAll()
                                    }
                                    .foregroundColor(.white)
                                    .padding()
@@ -60,6 +58,7 @@ struct ARPlacementView: View {
 //        arViewModel.savePlacedStickers()
 //        
    // }
+    
 }
 
 struct ARViewContainer: UIViewRepresentable {

@@ -22,48 +22,48 @@ struct ContentView: View {
                     }
                 }
                 .padding()
-                Button(action: arViewModel.saveCurrentAnchor) {
-                    Text("Save")
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                }
-                .padding()
-                Button(action: {
-                    arViewModel.loadSavedAnchors()
-                }) {
-                    Text("Load Anchors")
-                        .padding()
-                        .background(Color.orange)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                }
-                
-                
+                //                Button(action: arViewModel.saveCurrentAnchor) {
+                //                    Text("Save")
+                //                        .padding()
+                //                        .background(Color.blue)
+                //                        .foregroundColor(.white)
+                //                        .cornerRadius(10)
+                //                }
+                //                .padding()
+                //                Button(action: {
+                //                    arViewModel.loadSavedAnchors()
+                //                }) {
+                //                    Text("Load Anchors")
+                //                        .padding()
+                //                        .background(Color.orange)
+                //                        .foregroundColor(.white)
+                //                        .cornerRadius(10)
             }
             
             
-            .navigationTitle("Choose your sticker")
         }
+        
+        
+        .navigationTitle("Choose your sticker")
     }
-    
+}
+
 //    func savePlacedStickers() {
 //        arViewModel.savePlacedStickers()
 //    }
-    
-    func loadImage(index: Int) -> UIImage {
-        let imageName = String(format: "image_%04d", index)
-        if let image = UIImage(named: imageName) {
-            return image
-        } else {
-            print("Failed to load image: \(imageName)")
-            return UIImage(systemName: "photo") ?? UIImage()
-        }
+
+func loadImage(index: Int) -> UIImage {
+    let imageName = String(format: "image_%04d", index)
+    if let image = UIImage(named: imageName) {
+        return image
+    } else {
+        print("Failed to load image: \(imageName)")
+        return UIImage(systemName: "photo") ?? UIImage()
     }
-    
-    
 }
+
+
+
 //struct ARViewContainer: UIViewRepresentable {
 //    @ObservedObject var arViewModel: ARViewModel
 //    
