@@ -85,6 +85,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
                 let anchor = anchorData.toARAnchor()
                 self.arView.session.add(anchor: anchor)
             }
+            
         }
     }
     
@@ -99,7 +100,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
                     return
                 }
                 
-                guard let worldMap = worldMap else {
+                guard worldMap != nil else {
                     print("No world map available.")
                     return
                 }
@@ -173,16 +174,16 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
           
        }
     
-    func clearAllStickers() {
-        
-        for (anchorID, _) in placedStickers {
-            if let anchor = arView.session.currentFrame?.anchors.first(where: { $0.identifier == anchorID }) {
-                arView.session.remove(anchor: anchor)
-            }
-        }
-        placedStickers.removeAll()
-        placedStickersCount = 0
-    }
+//    func clearAllStickers() {
+//        
+//        for (anchorID, _) in placedStickers {
+//            if let anchor = arView.session.currentFrame?.anchors.first(where: { $0.identifier == anchorID }) {
+//                arView.session.remove(anchor: anchor)
+//            }
+//        }
+//        placedStickers.removeAll()
+//        placedStickersCount = 0
+//    }
     
     //    func restorePlacedStickers() {
     //        guard let arView = arView else { return }
@@ -216,28 +217,28 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     //    }
     /////
     ///
-    func createAnchor(at transform: simd_float4x4) -> ARAnchor {
-        let anchor = ARAnchor(transform: transform)
-        return anchor
-    }
-    
-    func restoreAnchors(_ anchorsData: [[String: Any]]) {
-        for anchorData in anchorsData {
-            if let transformArray = anchorData["transform"] as? [Float] {
-                // Reconstruct the transform matrix
-                let transform = simd_float4x4(
-                    SIMD4<Float>(transformArray[0], transformArray[1], transformArray[2], transformArray[3]),
-                    SIMD4<Float>(transformArray[4], transformArray[5], transformArray[6], transformArray[7]),
-                    SIMD4<Float>(transformArray[8], transformArray[9], transformArray[10], transformArray[11]),
-                    SIMD4<Float>(transformArray[12], transformArray[13], transformArray[14], transformArray[15])
-                )
-                
-                let anchor = ARAnchor(transform: transform)
-                arView.session.add(anchor: anchor)
-            }
-        }
-    }
-    
+//    func createAnchor(at transform: simd_float4x4) -> ARAnchor {
+//        let anchor = ARAnchor(transform: transform)
+//        return anchor
+//    }
+//    
+//    func restoreAnchors(_ anchorsData: [[String: Any]]) {
+//        for anchorData in anchorsData {
+//            if let transformArray = anchorData["transform"] as? [Float] {
+//                // Reconstruct the transform matrix
+//                let transform = simd_float4x4(
+//                    SIMD4<Float>(transformArray[0], transformArray[1], transformArray[2], transformArray[3]),
+//                    SIMD4<Float>(transformArray[4], transformArray[5], transformArray[6], transformArray[7]),
+//                    SIMD4<Float>(transformArray[8], transformArray[9], transformArray[10], transformArray[11]),
+//                    SIMD4<Float>(transformArray[12], transformArray[13], transformArray[14], transformArray[15])
+//                )
+//                
+//                let anchor = ARAnchor(transform: transform)
+//                arView.session.add(anchor: anchor)
+//            }
+//        }
+//    }
+//    
     
     
     //    func retreivePlacedStickers() {

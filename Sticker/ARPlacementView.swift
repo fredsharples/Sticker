@@ -12,7 +12,7 @@ struct ARPlacementView: View {
                 .edgesIgnoringSafeArea(.all)
             
             VStack {
-                Spacer().frame(height: 50)
+                Spacer().frame(height: 450)
                 Text("Tap to drop your sticker")
                     .foregroundColor(.white)
                     .padding()
@@ -26,7 +26,7 @@ struct ARPlacementView: View {
                             .foregroundColor(.white)
                             .cornerRadius(10)
                     }
-                    .padding()
+                .padding()
                 Button(action: arViewModel.loadSavedAnchors) {
                     Text("Load")
                         .padding()
