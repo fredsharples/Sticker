@@ -5,7 +5,7 @@ import FirebaseFirestoreCombineSwift
 import FirebaseAuth
 import RealityKit
 
-class FirebaseManager {
+class FirestoreManager {
     private let db = Firestore.firestore()
     private let collectionName = "stickers"
     private let anchorsCollection = "anchors"
@@ -26,24 +26,21 @@ class FirebaseManager {
     }
     
     // MARK: - Save Anchor
-    func saveAnchor(anchor: ARAnchor) {
+    func saveAnchor(anchor: ARAnchor, materialData: MaterialData?) {
         let idString = anchor.identifier.uuidString
-        let transform = anchor.transform
-        
-        // Serialize the transform matrix into an array
-        let transformArray = [
-            transform.columns.0.x, transform.columns.0.y, transform.columns.0.z, transform.columns.0.w,
-            transform.columns.1.x, transform.columns.1.y, transform.columns.1.z, transform.columns.1.w,
-            transform.columns.2.x, transform.columns.2.y, transform.columns.2.z, transform.columns.2.w,
-            transform.columns.3.x, transform.columns.3.y, transform.columns.3.z, transform.columns.3.w
-        ]
-        
-        let anchorData: [String: Any] = [
+        let transformArray = anchor.transform.toArray()
+        let name = anchor.name ?? ""
+
+        var anchorData: [String: Any] = [
             "id": idString,
             "transform": transformArray,
-            "name": anchor.name ?? ""
+            "name": name
         ]
-        
+
+        if let materialData = materialData {
+            anchorData["material"] = materialData.toDictionary()
+        }
+
         db.collection(anchorsCollection).document(idString).setData(anchorData) { error in
             if let error = error {
                 print("Error saving anchor: \(error.localizedDescription)")
@@ -61,17 +58,18 @@ class FirebaseManager {
                 completion([])
                 return
             }
-            
+
             guard let documents = snapshot?.documents else {
+                print("No anchors found.")
                 completion([])
                 return
             }
-            
+
             let anchors = documents.compactMap { doc -> AnchorData? in
                 let data = doc.data()
                 return AnchorData(dictionary: data)
             }
-            print("Loaded these anchors: \(anchors.map(\.name).joined(separator: ",")))")
+
             completion(anchors)
         }
     }
@@ -95,30 +93,32 @@ class AuthManager {
 }
 
 // MARK: - AnchorData Struct
+import ARKit
+import simd
+
+// MARK: - AnchorData Struct
+
 struct AnchorData {
     let id: String
     let transform: simd_float4x4
     let name: String
-    
+    let materialData: MaterialData?
+
+    // Initializer to create AnchorData from a dictionary (e.g., data retrieved from Firestore)
     init?(dictionary: [String: Any]) {
-        // Check for 'id'
+        // Extract 'id' from the dictionary
         guard let id = dictionary["id"] as? String else {
             print("Error: 'id' not found or not a String")
             return nil
         }
 
-        // Check for 'transform'
+        // Extract 'transform' array from the dictionary and ensure it has 16 elements
         guard let transformArray = dictionary["transform"] as? [Double], transformArray.count == 16 else {
             print("Error: 'transform' not found or incorrect format")
             return nil
         }
 
-        // 'name' might be optional
-        let name = dictionary["name"] as? String
-
-        self.id = id
-        self.name = name ?? "defaultName"
-
+        // Reconstruct the simd_float4x4 transform matrix from the array
         var columns = [SIMD4<Float>]()
         for i in stride(from: 0, to: 16, by: 4) {
             let column = SIMD4<Float>(
@@ -129,12 +129,81 @@ struct AnchorData {
             )
             columns.append(column)
         }
-        self.transform = simd_float4x4(columns: (columns[0], columns[1], columns[2], columns[3]))
+        let transform = simd_float4x4(columns: (columns[0], columns[1], columns[2], columns[3]))
+
+        // Extract 'name' from the dictionary or provide a default value
+        let name = dictionary["name"] as? String ?? "defaultName"
+
+        // Extract 'material' data from the dictionary
+        var materialData: MaterialData? = nil
+        if let materialDict = dictionary["material"] as? [String: Any] {
+            materialData = MaterialData(dictionary: materialDict)
+        }
+
+        // Initialize properties
+        self.id = id
+        self.transform = transform
+        self.name = name
+        self.materialData = materialData
     }
-    
+
+    // Method to convert AnchorData to a dictionary suitable for Firestore storage
+    func toDictionary() -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": id,
+            "transform": transform.toArray(),
+            "name": name
+        ]
+        if let materialData = materialData {
+            dict["material"] = materialData.toDictionary()
+        }
+        return dict
+    }
+
+    // Method to create an ARAnchor from the AnchorData
     func toARAnchor() -> ARAnchor {
-        let anchor = ARAnchor(name: name, transform: transform)
-        return anchor
+        return ARAnchor(name: name, transform: transform)
     }
 }
+
+// MARK: - MaterialData Struct
+
+struct MaterialData {
+    let imageIndex: Int
+    let tintAlpha: Float
+
+    // Initializer to create MaterialData from a dictionary
+    init?(dictionary: [String: Any]) {
+        guard let imageIndex = dictionary["imageIndex"] as? Int,
+              let tintAlpha = dictionary["tintAlpha"] as? Float else {
+            print("Error: 'materialData' missing or invalid")
+            return nil
+        }
+        self.imageIndex = imageIndex
+        self.tintAlpha = tintAlpha
+    }
+
+    // Method to convert MaterialData to a dictionary for Firestore storage
+    func toDictionary() -> [String: Any] {
+        return [
+            "imageIndex": imageIndex,
+            "tintAlpha": tintAlpha
+        ]
+    }
+}
+
+// MARK: - Extension for simd_float4x4
+
+extension simd_float4x4 {
+    // Method to convert the transform matrix to an array of Floats for storage
+    func toArray() -> [Float] {
+        return [
+            columns.0.x, columns.0.y, columns.0.z, columns.0.w,
+            columns.1.x, columns.1.y, columns.1.z, columns.1.w,
+            columns.2.x, columns.2.y, columns.2.z, columns.2.w,
+            columns.3.x, columns.3.y, columns.3.z, columns.3.w
+        ]
+    }
+}
+
 
