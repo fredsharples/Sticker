@@ -1,7 +1,6 @@
 import Firebase
 import ARKit
 import FirebaseFirestore
-import FirebaseFirestoreCombineSwift
 import FirebaseAuth
 import RealityKit
 
@@ -26,10 +25,10 @@ class FirebaseManager {
     }
     
     // MARK: - Save Anchor
-    func saveAnchor(anchor: ARAnchor) {
+    func saveAnchor(anchor: ARAnchor, imageName: String) {
         let idString = anchor.identifier.uuidString
         let transform = anchor.transform
-        
+
         // Serialize the transform matrix into an array
         let transformArray = [
             transform.columns.0.x, transform.columns.0.y, transform.columns.0.z, transform.columns.0.w,
@@ -41,7 +40,7 @@ class FirebaseManager {
         let anchorData: [String: Any] = [
             "id": idString,
             "transform": transformArray,
-            "name": anchor.name ?? ""
+            "name": imageName
         ]
         
         db.collection(anchorsCollection).document(idString).setData(anchorData) { error in

@@ -3,8 +3,9 @@ import RealityKit
 import ARKit
 
 struct ARPlacementView: View {
-    let imageIndex: Int
+    
     @ObservedObject var arViewModel: ARViewModel
+    let selectedImageIndex: Int
     
     var body: some View {
         ZStack {
@@ -12,7 +13,7 @@ struct ARPlacementView: View {
                 .edgesIgnoringSafeArea(.all)
             
             VStack {
-                Spacer().frame(height: 450)
+                Spacer().frame(height: 650)
                 Text("Tap to drop your sticker")
                     .foregroundColor(.white)
                     .padding()
@@ -46,19 +47,9 @@ struct ARPlacementView: View {
         }
         .navigationBarTitleDisplayMode(.inline)            
             .onAppear {
-                       arViewModel.setSelectedImage(imageIndex: imageIndex)
-//                       if arViewModel.arView == nil {
-//                           arViewModel.startARSession()
-//                       } else {
-//                           arViewModel.restorePlacedStickers()
-//                       }
+                arViewModel.setSelectedImage(imageIndex: selectedImageIndex)
         }
     }
-//    func savePlacedStickers() {
-//        arViewModel.savePlacedStickers()
-//        
-   // }
-    
 }
 
 struct ARViewContainer: UIViewRepresentable {
