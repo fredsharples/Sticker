@@ -13,7 +13,6 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     
     @Published var placedStickersCount: Int = 0
     private var stickers: [AnchorEntity] = []
-   // private var currentImageIndex: Int = 1
     private var imageName: String = "";
     @Published  var selectedImageIndex: Int = 1
     
@@ -56,7 +55,8 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
         for anchor in anchors {
             if anchor.name == "placedObject" {
-                let modelEntity = createModelEntity(imageIndex: currentImageIndex)
+                let imageName = String(format: "image_%04d", currentImageIndex);
+                let modelEntity = createModelEntity(imageName: imageName)
                 let anchorEntity = AnchorEntity(anchor: anchor)
                 anchorEntity.addChild(modelEntity)
                 arView.scene.addAnchor(anchorEntity)
@@ -65,9 +65,9 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     }
     
     // MARK: - Model Creation
-    private func createModelEntity(imageIndex: Int) -> ModelEntity {
+    private func createModelEntity(imageName: String) -> ModelEntity {
         
-        imageName = String(format: "image_%04d", imageIndex);
+        //imageName = String(format: "image_%04d", imageIndex);
         
         let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
         var material = UnlitMaterial()
@@ -85,45 +85,52 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
         firebaseManager.saveAnchor(anchor: lastAnchor, imageName: imageName)
     }
     
+//    func loadSavedAnchors() {
+//        firebaseManager.loadAnchors { [weak self] anchors in
+//            guard let self = self else { return }
+//            for anchorData in anchors {
+//                let anchor = anchorData.toARAnchor()
+//                self.arView.session.add(anchor: anchor)
+//            }
+//            
+//        }
+//    }
+    
     func loadSavedAnchors() {
         firebaseManager.loadAnchors { [weak self] anchors in
             guard let self = self else { return }
             for anchorData in anchors {
                 let anchor = anchorData.toARAnchor()
                 self.arView.session.add(anchor: anchor)
+                
+                // Create AnchorEntity and ModelEntity
+                let anchorEntity = AnchorEntity(anchor: anchor)
+                
+                let modelEntity = self.createModelEntity(imageName: anchorData.name)
+                
+                // Add ModelEntity to AnchorEntity
+                anchorEntity.addChild(modelEntity)
+                
+                // Add AnchorEntity to the scene
+                self.arView.scene.addAnchor(anchorEntity)
             }
-            
         }
     }
     
     // MARK: - Clear All Anchors and Models
     
     func clearAll() {
-        // Remove all anchors from the AR session
-        arView.session.getCurrentWorldMap { [weak self] worldMap, error in
-            guard let self = self else { return }
-            if let error = error {
-                print("Error getting current world map: \(error.localizedDescription)")
-                return
-            }
-            
-            guard worldMap != nil else {
-                print("No world map available.")
-                return
-            }
-            
-            // Create a new ARWorldTrackingConfiguration
-            let configuration = ARWorldTrackingConfiguration()
-            configuration.planeDetection = [.horizontal, .vertical]
-            
-            // Run the session with a reset tracking and remove existing anchors
-            self.arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-            
-            // Optionally, you can clear the scene
-            self.arView.scene.anchors.removeAll()
-            
-            print("All anchors and models have been cleared from the AR view.")
-        }
+        // Create a new ARWorldTrackingConfiguration
+        let configuration = ARWorldTrackingConfiguration()
+        configuration.planeDetection = [.horizontal, .vertical]
+        
+        // Run the session with a reset tracking and remove existing anchors
+        arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+        
+        // Clear the scene
+        arView.scene.anchors.removeAll()
+        
+        print("All anchors and models have been cleared from the AR view.")
     }
     
     func setSelectedImage(imageIndex: Int) {

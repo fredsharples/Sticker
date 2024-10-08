@@ -6,7 +6,6 @@ import RealityKit
 
 class FirebaseManager {
     private let db = Firestore.firestore()
-    private let collectionName = "stickers"
     private let anchorsCollection = "anchors"
     
     // MARK: - Login
@@ -48,6 +47,8 @@ class FirebaseManager {
                 print("Error saving anchor: \(error.localizedDescription)")
             } else {
                 print("Anchor saved successfully.")
+                print("Saved transformArray: \(transformArray)")
+                
             }
         }
     }
@@ -129,6 +130,7 @@ struct AnchorData {
             columns.append(column)
         }
         self.transform = simd_float4x4(columns: (columns[0], columns[1], columns[2], columns[3]))
+        print("Retrieved transformArray: \(transformArray)")
     }
     
     func toARAnchor() -> ARAnchor {
