@@ -16,7 +16,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     private var imageName: String = "";
     @Published  var selectedImageIndex: Int = 1
     
-    @Published var currentImageIndex: Int = 1
+    //@Published var currentImageIndex: Int = 1
     
     override init() {
         super.init()
@@ -36,7 +36,7 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
         // Add tap gesture recognizer
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         arView.addGestureRecognizer(tapGesture)
-        imageName = String(format: "image_%04d", currentImageIndex);
+        imageName = String(format: "image_%04d", selectedImageIndex);
         
     }
     
@@ -47,7 +47,8 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
         if let raycastResult = results.first {
             let anchor = ARAnchor(name: "placedObject", transform: raycastResult.worldTransform)
             arView.session.add(anchor: anchor)
-            placedStickers.append((anchor.identifier, currentImageIndex))
+            placedStickers.append((anchor.identifier, selectedImageIndex))
+            print("handletap called with Image Number: \(selectedImageIndex)");
         }
     }
     
@@ -55,8 +56,9 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
         for anchor in anchors {
             if anchor.name == "placedObject" {
-                let imageName = String(format: "image_%04d", currentImageIndex);
-                let modelEntity = createModelEntity(imageName: imageName)
+                imageName = String(format: "image_%04d", selectedImageIndex);
+                print("Sesssion Image Name is: \(imageName)");
+                let modelEntity = createModelEntity(img: imageName)
                 let anchorEntity = AnchorEntity(anchor: anchor)
                 anchorEntity.addChild(modelEntity)
                 arView.scene.addAnchor(anchorEntity)
@@ -65,10 +67,10 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     }
     
     // MARK: - Model Creation
-    private func createModelEntity(imageName: String) -> ModelEntity {
+    private func createModelEntity(img: String) -> ModelEntity {
         
-        //imageName = String(format: "image_%04d", imageIndex);
-        
+        imageName = img;
+        print("Creating Model with: \(imageName)");
         let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
         var material = UnlitMaterial()
         material.color = .init(tint: UIColor.white.withAlphaComponent(0.99), texture: .init(try! .load(named: imageName)))
@@ -83,18 +85,9 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
             return
         }
         firebaseManager.saveAnchor(anchor: lastAnchor, imageName: imageName)
+        
     }
     
-//    func loadSavedAnchors() {
-//        firebaseManager.loadAnchors { [weak self] anchors in
-//            guard let self = self else { return }
-//            for anchorData in anchors {
-//                let anchor = anchorData.toARAnchor()
-//                self.arView.session.add(anchor: anchor)
-//            }
-//            
-//        }
-//    }
     
     func loadSavedAnchors() {
         firebaseManager.loadAnchors { [weak self] anchors in
@@ -106,7 +99,8 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
                 // Create AnchorEntity and ModelEntity
                 let anchorEntity = AnchorEntity(anchor: anchor)
                 
-                let modelEntity = self.createModelEntity(imageName: anchorData.name)
+                let modelEntity = self.createModelEntity(img: anchorData.name)
+                print("Retrieved Sticker: \(anchorData.name)");
                 
                 // Add ModelEntity to AnchorEntity
                 anchorEntity.addChild(modelEntity)
@@ -134,7 +128,8 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
     }
     
     func setSelectedImage(imageIndex: Int) {
-        currentImageIndex = imageIndex
+        selectedImageIndex = imageIndex
+        print("Picked Sticker number: \(selectedImageIndex)");
         
     }
     

@@ -41,6 +41,7 @@ class FirebaseManager {
             "transform": transformArray,
             "name": imageName
         ]
+        print("saving anchor name: \(imageName)")
         
         db.collection(anchorsCollection).document(idString).setData(anchorData) { error in
             if let error = error {
