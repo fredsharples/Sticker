@@ -53,6 +53,7 @@ class ARViewModel: NSObject, ObservableObject {
         imageName = String(format: "image_%04d", selectedImageIndex)
     }
     
+    // MARK: - Tap
     @objc func handleTap(_ sender: UITapGestureRecognizer) {
         let location = sender.location(in: arView)
         let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
@@ -94,15 +95,36 @@ class ARViewModel: NSObject, ObservableObject {
     
     // MARK: - Model Creation
     private func createModelEntity(img: String) -> ModelEntity {
-        imageName = img
-        print("Creating Model with: \(imageName)")
-        let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
-        var material = UnlitMaterial()
-        material.color = try! .init(tint: .white,
-                                    texture: .init(.load(named: imageName, in: nil)))
-        let modelEntity = ModelEntity(mesh: mesh, materials: [material])
-        return modelEntity
-    }
+            print("Creating Model with: \(img)")
+            
+            let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
+            
+            guard let texture = try? TextureResource.load(named: img) else {
+                print("Failed to load texture: \(img)")
+                return ModelEntity()
+            }
+            
+            var material = UnlitMaterial()
+            material.baseColor = MaterialColorParameter.texture(texture)
+            
+            // Enable transparency
+            material.blending = .transparent(opacity: .init(floatLiteral: 1.0))
+            
+            let modelEntity = ModelEntity(mesh: mesh, materials: [material])
+            
+            // Make the ModelEntity double-sided
+            if var model = modelEntity.model {
+                model.materials = model.materials.map { material in
+                    var newMaterial = material as! UnlitMaterial
+                    newMaterial.blending = .transparent(opacity: .init(floatLiteral: 1.0))
+                    return newMaterial
+                }
+                modelEntity.model = model
+            }
+            
+            return modelEntity
+        }
+    
     
     func saveCurrentAnchor() {
         guard let lastAnchor = anchorEntities.last else {
