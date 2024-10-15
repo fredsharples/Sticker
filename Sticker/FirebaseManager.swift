@@ -1,39 +1,44 @@
 import Firebase
-import ARKit
 import FirebaseFirestore
 import FirebaseAuth
 import RealityKit
 
+// MARK: - FirebaseManager Class
 class FirebaseManager {
     private let db = Firestore.firestore()
-    private let anchorsCollection = "anchors"
+    private let anchorsCollection = "stickers"
+    
+    // MARK: - Initialization
+    init() {
+        // Optionally, configure Firebase if not done elsewhere
+        // FirebaseApp.configure()
+    }
     
     // MARK: - Login
-    func loginFirebase (){
+    func loginFirebase(completion: @escaping (Result<User, Error>) -> Void) {
         AuthManager.shared.signInAnonymously { result in
             switch result {
             case .success(let user):
                 print("User signed in anonymously with ID: \(user.uid)")
-                // Now you can save or load anchor entities
-                //self.saveAnchorEntities(anchors)  // or loadAnchorEntities()
+                completion(.success(user))
             case .failure(let error):
                 print("Error signing in: \(error.localizedDescription)")
+                completion(.failure(error))
             }
         }
-        
     }
     
     // MARK: - Save Anchor
-    func saveAnchor(anchor: ARAnchor, imageName: String) {
-        let idString = anchor.identifier.uuidString
-        let transform = anchor.transform
-
-        // Serialize the transform matrix into an array
-        let transformArray = [
-            transform.columns.0.x, transform.columns.0.y, transform.columns.0.z, transform.columns.0.w,
-            transform.columns.1.x, transform.columns.1.y, transform.columns.1.z, transform.columns.1.w,
-            transform.columns.2.x, transform.columns.2.y, transform.columns.2.z, transform.columns.2.w,
-            transform.columns.3.x, transform.columns.3.y, transform.columns.3.z, transform.columns.3.w
+    func saveAnchor(anchor: AnchorEntity, imageName: String, completion: ((Result<Void, Error>) -> Void)? = nil) {
+        let idString = anchor.id.description
+        let transformMatrix = anchor.transform.matrix
+        
+        // Serialize the transform matrix into an array of Doubles
+        let transformArray: [Double] = [
+            Double(transformMatrix.columns.0.x), Double(transformMatrix.columns.0.y), Double(transformMatrix.columns.0.z), Double(transformMatrix.columns.0.w),
+            Double(transformMatrix.columns.1.x), Double(transformMatrix.columns.1.y), Double(transformMatrix.columns.1.z), Double(transformMatrix.columns.1.w),
+            Double(transformMatrix.columns.2.x), Double(transformMatrix.columns.2.y), Double(transformMatrix.columns.2.z), Double(transformMatrix.columns.2.w),
+            Double(transformMatrix.columns.3.x), Double(transformMatrix.columns.3.y), Double(transformMatrix.columns.3.z), Double(transformMatrix.columns.3.w)
         ]
         
         let anchorData: [String: Any] = [
@@ -41,30 +46,32 @@ class FirebaseManager {
             "transform": transformArray,
             "name": imageName
         ]
-        print("saving anchor name: \(imageName)")
+        print("Saving anchor with imageName: \(imageName)")
         
         db.collection(anchorsCollection).document(idString).setData(anchorData) { error in
             if let error = error {
                 print("Error saving anchor: \(error.localizedDescription)")
+                completion?(.failure(error))
             } else {
                 print("Anchor saved successfully.")
                 print("Saved transformArray: \(transformArray)")
-                
+                completion?(.success(()))
             }
         }
     }
     
     // MARK: - Load Anchors
-    func loadAnchors(completion: @escaping ([AnchorData]) -> Void) {
+    func loadAnchors(completion: @escaping (Result<[AnchorData], Error>) -> Void) {
         db.collection(anchorsCollection).getDocuments { snapshot, error in
             if let error = error {
                 print("Error loading anchors: \(error.localizedDescription)")
-                completion([])
+                completion(.failure(error))
                 return
             }
             
             guard let documents = snapshot?.documents else {
-                completion([])
+                print("No documents found in collection \(self.anchorsCollection).")
+                completion(.success([]))
                 return
             }
             
@@ -72,13 +79,46 @@ class FirebaseManager {
                 let data = doc.data()
                 return AnchorData(dictionary: data)
             }
-            print("Loaded these anchors: \(anchors.map(\.name).joined(separator: ",")))")
-            completion(anchors)
+            print("Loaded these anchors: \(anchors.map(\.name).joined(separator: ", "))")
+            completion(.success(anchors))
+        }
+    }
+    
+    // MARK: - Delete All Anchors
+    func deleteAllAnchors(completion: @escaping (Result<Void, Error>) -> Void) {
+        db.collection(anchorsCollection).getDocuments { (snapshot, error) in
+            if let error = error {
+                print("Error fetching documents: \(error.localizedDescription)")
+                completion(.failure(error))
+                return
+            }
+            
+            guard let snapshot = snapshot else {
+                print("No documents found in collection \(self.anchorsCollection).")
+                completion(.success(()))
+                return
+            }
+            
+            let batch = self.db.batch()
+            
+            for document in snapshot.documents {
+                batch.deleteDocument(document.reference)
+            }
+            
+            batch.commit { (batchError) in
+                if let batchError = batchError {
+                    print("Error deleting documents: \(batchError.localizedDescription)")
+                    completion(.failure(batchError))
+                } else {
+                    print("All anchors deleted successfully from collection \(self.anchorsCollection).")
+                    completion(.success(()))
+                }
+            }
         }
     }
 }
 
-// MARK: - Auth Manager
+// MARK: - AuthManager Class
 class AuthManager {
     static let shared = AuthManager()
     
@@ -90,6 +130,9 @@ class AuthManager {
                 completion(.failure(error))
             } else if let user = authResult?.user {
                 completion(.success(user))
+            } else {
+                let unknownError = NSError(domain: "AuthManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unknown authentication error."])
+                completion(.failure(unknownError))
             }
         }
     }
@@ -102,24 +145,25 @@ struct AnchorData {
     let name: String
     
     init?(dictionary: [String: Any]) {
-        // Check for 'id'
+        // Validate and parse 'id'
         guard let id = dictionary["id"] as? String else {
-            print("Error: 'id' not found or not a String")
+            print("Error: 'id' not found or not a String in dictionary: \(dictionary)")
             return nil
         }
 
-        // Check for 'transform'
+        // Validate and parse 'transform'
         guard let transformArray = dictionary["transform"] as? [Double], transformArray.count == 16 else {
-            print("Error: 'transform' not found or incorrect format")
+            print("Error: 'transform' not found or incorrect format in dictionary: \(dictionary)")
             return nil
         }
 
-        // 'name' might be optional
-        let name = dictionary["name"] as? String
-
+        // Parse 'name', defaulting if necessary
+        let name = dictionary["name"] as? String ?? "defaultName"
+        
         self.id = id
-        self.name = name ?? "defaultName"
-
+        self.name = name
+        
+        // Convert the array of Doubles to simd_float4x4
         var columns = [SIMD4<Float>]()
         for i in stride(from: 0, to: 16, by: 4) {
             let column = SIMD4<Float>(
@@ -131,12 +175,14 @@ struct AnchorData {
             columns.append(column)
         }
         self.transform = simd_float4x4(columns: (columns[0], columns[1], columns[2], columns[3]))
-        print("Retrieved transformArray: \(transformArray)")
+        
+        print("Initialized AnchorData with id: \(id), name: \(name), transform: \(transformArray)")
     }
     
-    func toARAnchor() -> ARAnchor {
-        let anchor = ARAnchor(name: name, transform: transform)
-        return anchor
+    // Method to convert AnchorData to AnchorEntity
+    func toAnchorEntity() -> AnchorEntity {
+        let anchorEntity = AnchorEntity(world: transform)
+        anchorEntity.name = name
+        return anchorEntity
     }
 }
-

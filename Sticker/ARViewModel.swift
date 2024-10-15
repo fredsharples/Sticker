@@ -1,27 +1,38 @@
 import SwiftUI
 import RealityKit
 import ARKit
+import FocusEntity
 
-class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
+class ARViewModel: NSObject, ObservableObject {
     @Published var arView: ARView = ARView(frame: .zero)
-    let firebaseManager = FirebaseManager();
+    let firebaseManager = FirebaseManager()
     
-    private var imageAnchor: AnchorEntity?
-    private var imageMaterial: UnlitMaterial?
+    var focusEntity: FocusEntity?
     
     private var placedStickers: [(UUID, Int)] = []
+    private var anchorEntities: [AnchorEntity] = [] // Tracking array
     
-    @Published var placedStickersCount: Int = 0
-    private var stickers: [AnchorEntity] = []
-    private var imageName: String = "";
-    @Published  var selectedImageIndex: Int = 1
-    
-    //@Published var currentImageIndex: Int = 1
+    private var imageName: String = ""
+    @Published var selectedImageIndex: Int = 1
     
     override init() {
         super.init()
-        setupARView();
-        firebaseManager.loginFirebase()
+        self.setUpFocusEntity()
+        setupARView()
+        firebaseManager.loginFirebase { result in
+            switch result {
+            case .success(let user):
+                print("Logged in as user: \(user.uid)")
+                // Optionally, load saved anchors here
+                self.loadSavedAnchors()
+            case .failure(let error):
+                print("Failed to log in: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func setUpFocusEntity() {
+        self.focusEntity = FocusEntity(on: arView, style: .classic(color: .white))
     }
     
     // MARK: - Setup
@@ -29,15 +40,17 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
         // Configure ARView and ARSession
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.horizontal, .vertical]
-        arView.session.delegate = self
+        configuration.environmentTexturing = .automatic
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
+            configuration.sceneReconstruction = .meshWithClassification
+        }
         arView.automaticallyConfigureSession = false
         arView.session.run(configuration)
         
         // Add tap gesture recognizer
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         arView.addGestureRecognizer(tapGesture)
-        imageName = String(format: "image_%04d", selectedImageIndex);
-        
+        imageName = String(format: "image_%04d", selectedImageIndex)
     }
     
     @objc func handleTap(_ sender: UITapGestureRecognizer) {
@@ -45,93 +58,119 @@ class ARViewModel: NSObject, ObservableObject, ARSessionDelegate {
         let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
         
         if let raycastResult = results.first {
-            let anchor = ARAnchor(name: "placedObject", transform: raycastResult.worldTransform)
-            arView.session.add(anchor: anchor)
-            placedStickers.append((anchor.identifier, selectedImageIndex))
-            print("handletap called with Image Number: \(selectedImageIndex)");
-        }
-    }
-    
-    // MARK: - ARSessionDelegate
-    func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
-        for anchor in anchors {
-            if anchor.name == "placedObject" {
-                imageName = String(format: "image_%04d", selectedImageIndex);
-                print("Sesssion Image Name is: \(imageName)");
-                let modelEntity = createModelEntity(img: imageName)
-                let anchorEntity = AnchorEntity(anchor: anchor)
-                anchorEntity.addChild(modelEntity)
-                arView.scene.addAnchor(anchorEntity)
-            }
+            let worldTransform = raycastResult.worldTransform
+            // Debug: Print the raycast result's transform
+            print("Raycast Result Transform: \(worldTransform)")
+            
+            // Create AnchorEntity at the world origin
+            let anchorEntity = AnchorEntity()
+            anchorEntity.name = "placedObject"
+            
+            // Set the transform of the AnchorEntity
+            anchorEntity.setTransformMatrix(worldTransform, relativeTo: nil)
+            
+            // Debug: Print the anchor's transform after setting
+            print("Anchor Transform After Setting: \(anchorEntity.transform.matrix)")
+            
+            imageName = String(format: "image_%04d", selectedImageIndex)
+            
+            // Create and add the ModelEntity
+            let modelEntity = createModelEntity(img: imageName)
+            anchorEntity.addChild(modelEntity)
+            
+            // Add the AnchorEntity to the scene
+            arView.scene.addAnchor(anchorEntity)
+            
+            // Debug: Print confirmation of anchor addition
+            print("AnchorEntity added to scene with ID: \(anchorEntity.id)")
+            
+            // Keep track of placed stickers
+            anchorEntities.append(anchorEntity) // Track the anchor
+            print("handleTap called with Image Number: \(selectedImageIndex)")
+        } else {
+            print("No valid raycast result found.")
         }
     }
     
     // MARK: - Model Creation
     private func createModelEntity(img: String) -> ModelEntity {
-        
-        imageName = img;
-        print("Creating Model with: \(imageName)");
+        imageName = img
+        print("Creating Model with: \(imageName)")
         let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
         var material = UnlitMaterial()
-        material.color = .init(tint: UIColor.white.withAlphaComponent(0.99), texture: .init(try! .load(named: imageName)))
-        material.tintColor = UIColor.white.withAlphaComponent(0.99)//F# despite being deprecated this actually honors the alpha where the above does not
+        material.color = try! .init(tint: .white,
+                                    texture: .init(.load(named: imageName, in: nil)))
         let modelEntity = ModelEntity(mesh: mesh, materials: [material])
         return modelEntity
     }
     
     func saveCurrentAnchor() {
-        guard let lastAnchor = arView.session.currentFrame?.anchors.last else {
+        guard let lastAnchor = anchorEntities.last else {
             print("No anchor to save.")
             return
         }
         firebaseManager.saveAnchor(anchor: lastAnchor, imageName: imageName)
-        
     }
     
-    
     func loadSavedAnchors() {
-        firebaseManager.loadAnchors { [weak self] anchors in
+        firebaseManager.loadAnchors { [weak self] result in
             guard let self = self else { return }
-            for anchorData in anchors {
-                let anchor = anchorData.toARAnchor()
-                self.arView.session.add(anchor: anchor)
-                
-                // Create AnchorEntity and ModelEntity
-                let anchorEntity = AnchorEntity(anchor: anchor)
-                
-                let modelEntity = self.createModelEntity(img: anchorData.name)
-                print("Retrieved Sticker: \(anchorData.name)");
-                
-                // Add ModelEntity to AnchorEntity
-                anchorEntity.addChild(modelEntity)
-                
-                // Add AnchorEntity to the scene
-                self.arView.scene.addAnchor(anchorEntity)
+            switch result {
+            case .success(let anchors):
+                DispatchQueue.main.async {
+                    for anchorData in anchors {
+                        // Convert AnchorData to AnchorEntity
+                        let anchorEntity = anchorData.toAnchorEntity()
+                        
+                        // Create the ModelEntity
+                        let modelEntity = self.createModelEntity(img: anchorData.name)
+                        print("Retrieved Sticker: \(anchorData.name)")
+                        
+                        // Add the ModelEntity to the AnchorEntity
+                        anchorEntity.addChild(modelEntity)
+                        
+                        // Add the AnchorEntity to the scene
+                        self.arView.scene.addAnchor(anchorEntity)
+                        
+                        // Track the loaded anchor
+                        self.anchorEntities.append(anchorEntity)
+                    }
+                }
+            case .failure(let error):
+                print("Failed to load anchors: \(error.localizedDescription)")
+                // Optionally, update the UI to reflect the error
             }
         }
     }
     
-    // MARK: - Clear All Anchors and Models
-    
+    // MARK: - Clear All Anchors and Models from Scene
     func clearAll() {
-        // Create a new ARWorldTrackingConfiguration
-        let configuration = ARWorldTrackingConfiguration()
-        configuration.planeDetection = [.horizontal, .vertical]
-        
-        // Run the session with a reset tracking and remove existing anchors
-        arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-        
         // Clear the scene
         arView.scene.anchors.removeAll()
         
+        // Reset the tracking array
+        anchorEntities.removeAll()
+        
+        // Reset the focusEntity (reticle)
+        setUpFocusEntity()
         print("All anchors and models have been cleared from the AR view.")
+    }
+    
+    func deleteAllfromFirebase() {
+        firebaseManager.deleteAllAnchors { result in
+            switch result {
+            case .success:
+                print("All anchors have been deleted from Firebase")
+                // Optionally update your local state or UI here
+            case .failure(let error):
+                print("Failed to delete anchors: \(error.localizedDescription)")
+                // Handle the error appropriately
+            }
+        }
     }
     
     func setSelectedImage(imageIndex: Int) {
         selectedImageIndex = imageIndex
-        print("Picked Sticker number: \(selectedImageIndex)");
-        
+        print("Picked Sticker number: \(selectedImageIndex)")
     }
-    
 }
-
