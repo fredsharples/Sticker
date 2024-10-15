@@ -88,6 +88,7 @@ class ARViewModel: NSObject, ObservableObject {
             // Keep track of placed stickers
             anchorEntities.append(anchorEntity) // Track the anchor
             print("handleTap called with Image Number: \(selectedImageIndex)")
+            saveCurrentAnchor()
         } else {
             print("No valid raycast result found.")
         }
@@ -105,6 +106,8 @@ class ARViewModel: NSObject, ObservableObject {
             }
             
             var material = UnlitMaterial()
+        
+            //cannot use color attribute with a texture so using deprecated baseColor which displays the bitmap with transparency
             material.baseColor = MaterialColorParameter.texture(texture)
             
             // Enable transparency
