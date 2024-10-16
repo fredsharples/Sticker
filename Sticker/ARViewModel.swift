@@ -17,7 +17,7 @@ class ARViewModel: NSObject, ObservableObject {
     
     override init() {
         super.init()
-        self.setUpFocusEntity()
+       // self.setUpFocusEntity()
         setupARView()
         firebaseManager.loginFirebase { result in
             switch result {
@@ -177,7 +177,7 @@ class ARViewModel: NSObject, ObservableObject {
         anchorEntities.removeAll()
         
         // Reset the focusEntity (reticle)
-        setUpFocusEntity()
+        //setUpFocusEntity()
         print("All anchors and models have been cleared from the AR view.")
     }
     

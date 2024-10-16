@@ -20,13 +20,13 @@ struct ARPlacementView: View {
                     .background(Color.black.opacity(0.7))
                     .cornerRadius(10)
                     
-                Button(action: arViewModel.saveCurrentAnchor) {
-                        Text("Save")
-                           .padding(10)
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                    }
+//                Button(action: arViewModel.saveCurrentAnchor) {
+//                        Text("Save")
+//                           .padding(10)
+//                            .background(Color.blue)
+//                            .foregroundColor(.white)
+//                            .cornerRadius(10)
+//                    }
              
                 Button(action: arViewModel.loadSavedAnchors) {
                     Text("Load")

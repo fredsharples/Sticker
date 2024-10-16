@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     let columns: [GridItem] = Array(repeating: .init(.flexible()), count: 3)
-    let imageCount = 12 // Total number of images to display
+    let imageCount = 18 // Total number of images to display
     @StateObject private var arViewModel = ARViewModel()
     
     
