@@ -2,12 +2,17 @@ import SwiftUI
 import RealityKit
 import ARKit
 import CoreLocation
+import CoreMotion
 
 class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
     @Published var arView: ARView = ARView(frame: .zero)
     let firebaseManager = FirebaseManager()
     let locationManager = CLLocationManager()
+    let motionManager = CMMotionManager()
+    
     @Published var currentLocation: CLLocation?
+    @Published var heading: CLHeading?
+    @Published var motionData: CMDeviceMotion?
     
     
     private var placedStickers: [(UUID, Int)] = []
@@ -18,7 +23,7 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
     
     override init() {
         super.init()
-       // self.setUpFocusEntity()
+        // self.setUpFocusEntity()
         setupARView()
         firebaseManager.loginFirebase { result in
             switch result {
@@ -31,17 +36,44 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
             }
         }
         setupLocationManager()
+        setupMotionManager()
+    }
+    func setupMotionManager() {
+        if motionManager.isDeviceMotionAvailable {
+            motionManager.deviceMotionUpdateInterval = 0.1
+            motionManager.startDeviceMotionUpdates(to: .main) { [weak self] (motion, error) in
+                guard let motion = motion, error == nil else { return }
+                self?.motionData = motion
+            }
+        }
     }
     
     func setupLocationManager() {
-            locationManager.delegate = self
-            locationManager.desiredAccuracy = kCLLocationAccuracyBest
-            locationManager.requestWhenInUseAuthorization()
-            locationManager.startUpdatingLocation()
+        locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+        locationManager.distanceFilter = kCLDistanceFilterNone
+        locationManager.pausesLocationUpdatesAutomatically = false
+        
+        if #available(iOS 11.0, *) {
+            locationManager.showsBackgroundLocationIndicator = true
         }
-    
+        
+        locationManager.requestWhenInUseAuthorization()
+        locationManager.startUpdatingLocation()
+        locationManager.startUpdatingHeading()
+    }
+    //Delegate for updating location
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-           currentLocation = locations.last
+           guard let location = locations.last else { return }
+           
+           // Filter out inaccurate locations
+           if location.horizontalAccuracy < 20 {
+               currentLocation = location
+           }
+       }
+    //delegate for updating compass heading
+    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+           heading = newHeading
        }
     
     // MARK: - Setup
@@ -64,71 +96,71 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
     
     // MARK: - Tap
     @objc func handleTap(_ sender: UITapGestureRecognizer) {
-            guard let currentLocation = currentLocation else {
-                print("Current location not available")
-                return
-            }
-
-            let location = sender.location(in: arView)
-            let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
-            
-            if let raycastResult = results.first {
-                let worldTransform = raycastResult.worldTransform
-                
-                let anchorEntity = AnchorEntity()
-                anchorEntity.name = "placedObject"
-                
-                anchorEntity.setTransformMatrix(worldTransform, relativeTo: nil)
-                
-                imageName = String(format: "image_%04d", selectedImageIndex)
-                
-                let modelEntity = createModelEntity(img: imageName)
-                anchorEntity.addChild(modelEntity)
-                
-                arView.scene.addAnchor(anchorEntity)
-                
-                anchorEntities.append(anchorEntity)
-                
-                // Save anchor with geolocation
-                saveCurrentAnchor(anchorEntity: anchorEntity, location: currentLocation)
-            } else {
-                print("No valid raycast result found.")
-            }
+        guard let currentLocation = currentLocation else {
+            print("Current location not available")
+            return
         }
+        
+        let location = sender.location(in: arView)
+        let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
+        
+        if let raycastResult = results.first {
+            let worldTransform = raycastResult.worldTransform
+            
+            let anchorEntity = AnchorEntity()
+            anchorEntity.name = "placedObject"
+            
+            anchorEntity.setTransformMatrix(worldTransform, relativeTo: nil)
+            
+            imageName = String(format: "image_%04d", selectedImageIndex)
+            
+            let modelEntity = createModelEntity(img: imageName)
+            anchorEntity.addChild(modelEntity)
+            
+            arView.scene.addAnchor(anchorEntity)
+            
+            anchorEntities.append(anchorEntity)
+            
+            // Save anchor with geolocation
+            saveCurrentAnchor(anchorEntity: anchorEntity, location: currentLocation)
+        } else {
+            print("No valid raycast result found.")
+        }
+    }
     
     // MARK: - Model Creation
     private func createModelEntity(img: String) -> ModelEntity {
-            print("Creating Model with: \(img)")
-            
-            let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
-            
-            guard let texture = try? TextureResource.load(named: img) else {
-                print("Failed to load texture: \(img)")
-                return ModelEntity()
-            }
-            
-            var material = UnlitMaterial()
+        print("Creating Model with: \(img)")
         
-            //cannot use color attribute with a texture so using deprecated baseColor which displays the bitmap with transparency
-            material.baseColor = MaterialColorParameter.texture(texture)
-            
-            // Enable transparency
-            material.blending = .transparent(opacity: .init(floatLiteral: 1.0))
-            
-            let modelEntity = ModelEntity(mesh: mesh, materials: [material])
-            
-            // Make the ModelEntity double-sided
-            if var model = modelEntity.model {
-                model.materials = model.materials.map { material in
-                    var newMaterial = material as! UnlitMaterial
-                    newMaterial.blending = .transparent(opacity: .init(floatLiteral: 1.0))
-                    return newMaterial
-                }
-                modelEntity.model = model
-            }
-            
-            return modelEntity
+        let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
+        
+        guard let texture = try? TextureResource.load(named: img) else {
+            print("Failed to load texture: \(img)")
+            return ModelEntity()
         }
+        
+        var material = UnlitMaterial()
+        
+        //cannot use color attribute with a texture so using deprecated baseColor which displays the bitmap with transparency
+        material.baseColor = MaterialColorParameter.texture(texture)
+        
+        // Enable transparency
+        material.blending = .transparent(opacity: .init(floatLiteral: 1.0))
+        
+        let modelEntity = ModelEntity(mesh: mesh, materials: [material])
+        
+        // Make the ModelEntity double-sided
+        if var model = modelEntity.model {
+            model.materials = model.materials.map { material in
+                var newMaterial = material as! UnlitMaterial
+                newMaterial.blending = .transparent(opacity: .init(floatLiteral: 1.0))
+                return newMaterial
+            }
+            modelEntity.model = model
+        }
+        
+        return modelEntity
+    }
     
     
     func saveCurrentAnchor(anchorEntity: AnchorEntity, location: CLLocation) {
@@ -140,14 +172,41 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
                 Double(transformMatrix.columns.3.x), Double(transformMatrix.columns.3.y), Double(transformMatrix.columns.3.z), Double(transformMatrix.columns.3.w)
             ]
             
-            let anchorData: [String: Any] = [
+            var anchorData: [String: Any] = [
                 "id": anchorEntity.id.description,
                 "transform": transformArray,
                 "name": imageName,
                 "latitude": location.coordinate.latitude,
                 "longitude": location.coordinate.longitude,
-                "altitude": location.altitude
+                "altitude": location.altitude,
+                "horizontalAccuracy": location.horizontalAccuracy,
+                "verticalAccuracy": location.verticalAccuracy,
+                "timestamp": location.timestamp.timeIntervalSince1970
             ]
+            
+            if let heading = heading {
+                anchorData["heading"] = heading.trueHeading
+                anchorData["headingAccuracy"] = heading.headingAccuracy
+            }
+            
+            if let motion = motionData {
+                anchorData["attitude"] = [
+                    "roll": motion.attitude.roll,
+                    "pitch": motion.attitude.pitch,
+                    "yaw": motion.attitude.yaw
+                ]
+                anchorData["gravity"] = [
+                    "x": motion.gravity.x,
+                    "y": motion.gravity.y,
+                    "z": motion.gravity.z
+                ]
+                anchorData["magneticField"] = [
+                    "x": motion.magneticField.field.x,
+                    "y": motion.magneticField.field.y,
+                    "z": motion.magneticField.field.z,
+                    "accuracy": motion.magneticField.accuracy.rawValue
+                ]
+            }
             
             firebaseManager.saveAnchor(anchorData: anchorData)
         }
