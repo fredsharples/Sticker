@@ -27,38 +27,21 @@ class FirebaseManager {
             }
         }
     }
-    
     // MARK: - Save Anchor
-    func saveAnchor(anchor: AnchorEntity, imageName: String, completion: ((Result<Void, Error>) -> Void)? = nil) {
-        let idString = anchor.id.description
-        let transformMatrix = anchor.transform.matrix
-        
-        // Serialize the transform matrix into an array of Doubles
-        let transformArray: [Double] = [
-            Double(transformMatrix.columns.0.x), Double(transformMatrix.columns.0.y), Double(transformMatrix.columns.0.z), Double(transformMatrix.columns.0.w),
-            Double(transformMatrix.columns.1.x), Double(transformMatrix.columns.1.y), Double(transformMatrix.columns.1.z), Double(transformMatrix.columns.1.w),
-            Double(transformMatrix.columns.2.x), Double(transformMatrix.columns.2.y), Double(transformMatrix.columns.2.z), Double(transformMatrix.columns.2.w),
-            Double(transformMatrix.columns.3.x), Double(transformMatrix.columns.3.y), Double(transformMatrix.columns.3.z), Double(transformMatrix.columns.3.w)
-        ]
-        
-        let anchorData: [String: Any] = [
-            "id": idString,
-            "transform": transformArray,
-            "name": imageName
-        ]
-        print("Saving anchor with imageName: \(imageName)")
-        
-        db.collection(anchorsCollection).document(idString).setData(anchorData) { error in
-            if let error = error {
-                print("Error saving anchor: \(error.localizedDescription)")
-                completion?(.failure(error))
-            } else {
-                print("Anchor saved successfully.")
-                print("Saved transformArray: \(transformArray)")
-                completion?(.success(()))
+    
+    func saveAnchor(anchorData: [String: Any]) {
+            let idString = anchorData["id"] as! String
+            
+            db.collection(anchorsCollection).document(idString).setData(anchorData) { error in
+                if let error = error {
+                    print("Error saving anchor: \(error.localizedDescription)")
+                } else {
+                    print("Anchor saved successfully with geolocation.")
+                }
             }
         }
-    }
+    
+  
     
     // MARK: - Load Anchors
     func loadAnchors(completion: @escaping (Result<[AnchorData], Error>) -> Void) {

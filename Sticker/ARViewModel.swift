@@ -1,13 +1,14 @@
 import SwiftUI
 import RealityKit
 import ARKit
-import FocusEntity
+import CoreLocation
 
-class ARViewModel: NSObject, ObservableObject {
+class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
     @Published var arView: ARView = ARView(frame: .zero)
     let firebaseManager = FirebaseManager()
+    let locationManager = CLLocationManager()
+    @Published var currentLocation: CLLocation?
     
-    var focusEntity: FocusEntity?
     
     private var placedStickers: [(UUID, Int)] = []
     private var anchorEntities: [AnchorEntity] = [] // Tracking array
@@ -29,11 +30,19 @@ class ARViewModel: NSObject, ObservableObject {
                 print("Failed to log in: \(error.localizedDescription)")
             }
         }
+        setupLocationManager()
     }
     
-    func setUpFocusEntity() {
-        self.focusEntity = FocusEntity(on: arView, style: .classic(color: .white))
-    }
+    func setupLocationManager() {
+            locationManager.delegate = self
+            locationManager.desiredAccuracy = kCLLocationAccuracyBest
+            locationManager.requestWhenInUseAuthorization()
+            locationManager.startUpdatingLocation()
+        }
+    
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+           currentLocation = locations.last
+       }
     
     // MARK: - Setup
     func setupARView() {
@@ -55,44 +64,37 @@ class ARViewModel: NSObject, ObservableObject {
     
     // MARK: - Tap
     @objc func handleTap(_ sender: UITapGestureRecognizer) {
-        let location = sender.location(in: arView)
-        let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
-        
-        if let raycastResult = results.first {
-            let worldTransform = raycastResult.worldTransform
-            // Debug: Print the raycast result's transform
-            print("Raycast Result Transform: \(worldTransform)")
+            guard let currentLocation = currentLocation else {
+                print("Current location not available")
+                return
+            }
+
+            let location = sender.location(in: arView)
+            let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
             
-            // Create AnchorEntity at the world origin
-            let anchorEntity = AnchorEntity()
-            anchorEntity.name = "placedObject"
-            
-            // Set the transform of the AnchorEntity
-            anchorEntity.setTransformMatrix(worldTransform, relativeTo: nil)
-            
-            // Debug: Print the anchor's transform after setting
-            print("Anchor Transform After Setting: \(anchorEntity.transform.matrix)")
-            
-            imageName = String(format: "image_%04d", selectedImageIndex)
-            
-            // Create and add the ModelEntity
-            let modelEntity = createModelEntity(img: imageName)
-            anchorEntity.addChild(modelEntity)
-            
-            // Add the AnchorEntity to the scene
-            arView.scene.addAnchor(anchorEntity)
-            
-            // Debug: Print confirmation of anchor addition
-            print("AnchorEntity added to scene with ID: \(anchorEntity.id)")
-            
-            // Keep track of placed stickers
-            anchorEntities.append(anchorEntity) // Track the anchor
-            print("handleTap called with Image Number: \(selectedImageIndex)")
-            saveCurrentAnchor()
-        } else {
-            print("No valid raycast result found.")
+            if let raycastResult = results.first {
+                let worldTransform = raycastResult.worldTransform
+                
+                let anchorEntity = AnchorEntity()
+                anchorEntity.name = "placedObject"
+                
+                anchorEntity.setTransformMatrix(worldTransform, relativeTo: nil)
+                
+                imageName = String(format: "image_%04d", selectedImageIndex)
+                
+                let modelEntity = createModelEntity(img: imageName)
+                anchorEntity.addChild(modelEntity)
+                
+                arView.scene.addAnchor(anchorEntity)
+                
+                anchorEntities.append(anchorEntity)
+                
+                // Save anchor with geolocation
+                saveCurrentAnchor(anchorEntity: anchorEntity, location: currentLocation)
+            } else {
+                print("No valid raycast result found.")
+            }
         }
-    }
     
     // MARK: - Model Creation
     private func createModelEntity(img: String) -> ModelEntity {
@@ -129,13 +131,26 @@ class ARViewModel: NSObject, ObservableObject {
         }
     
     
-    func saveCurrentAnchor() {
-        guard let lastAnchor = anchorEntities.last else {
-            print("No anchor to save.")
-            return
+    func saveCurrentAnchor(anchorEntity: AnchorEntity, location: CLLocation) {
+            let transformMatrix = anchorEntity.transform.matrix
+            let transformArray: [Double] = [
+                Double(transformMatrix.columns.0.x), Double(transformMatrix.columns.0.y), Double(transformMatrix.columns.0.z), Double(transformMatrix.columns.0.w),
+                Double(transformMatrix.columns.1.x), Double(transformMatrix.columns.1.y), Double(transformMatrix.columns.1.z), Double(transformMatrix.columns.1.w),
+                Double(transformMatrix.columns.2.x), Double(transformMatrix.columns.2.y), Double(transformMatrix.columns.2.z), Double(transformMatrix.columns.2.w),
+                Double(transformMatrix.columns.3.x), Double(transformMatrix.columns.3.y), Double(transformMatrix.columns.3.z), Double(transformMatrix.columns.3.w)
+            ]
+            
+            let anchorData: [String: Any] = [
+                "id": anchorEntity.id.description,
+                "transform": transformArray,
+                "name": imageName,
+                "latitude": location.coordinate.latitude,
+                "longitude": location.coordinate.longitude,
+                "altitude": location.altitude
+            ]
+            
+            firebaseManager.saveAnchor(anchorData: anchorData)
         }
-        firebaseManager.saveAnchor(anchor: lastAnchor, imageName: imageName)
-    }
     
     func loadSavedAnchors() {
         firebaseManager.loadAnchors { [weak self] result in
