@@ -30,17 +30,19 @@ class FirebaseManager {
     // MARK: - Save Anchor
     
     func saveSticker(data: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) {
-            db.collection("stickers").addDocument(data: data) { error in
-                if let error = error {
-                    completion(.failure(error))
-                } else {
-                    completion(.success(()))
-                }
-            }
-        }
-    
+           db.collection("stickers").addDocument(data: data) { error in
+               if let error = error {
+                   completion(.failure(error))
+               } else {
+                   completion(.success(()))
+               }
+           }
+       }
   
-    func fetchNearbyStickerData(latitude: Double, longitude: Double, radiusInKm: Double, completion: @escaping ([String: Any]) -> Void) {
+    func fetchNearbyStickerData(latitude: Double,
+                                   longitude: Double,
+                                   radiusInKm: Double,
+                                   completion: @escaping ([String: Any]) -> Void) {
             // Convert radius from km to degrees (approximate)
             let radiusInDegrees = radiusInKm / 111.32
             
@@ -70,16 +72,12 @@ class FirebaseManager {
                             continue
                         }
                         
-                        // Secondary filter for longitude
-                        if stickerLon >= lonMin && stickerLon <= lonMax {
-                            // Calculate precise distance
-                            let stickerLocation = CLLocation(latitude: stickerLat, longitude: stickerLon)
-                            let centerLocation = CLLocation(latitude: latitude, longitude: longitude)
-                            let distance = stickerLocation.distance(from: centerLocation) / 1000 // Convert to km
-                            
-                            if distance <= radiusInKm {
-                                completion(data)
-                            }
+                        // Secondary filter for longitude and radius
+                        if stickerLon >= lonMin && stickerLon <= lonMax &&
+                           LocationHelper.isLocation(stickerLat, stickerLon,
+                                                  withinRadiusKm: radiusInKm,
+                                                  ofLocation: latitude, longitude) {
+                            completion(data)
                         }
                     }
                 }

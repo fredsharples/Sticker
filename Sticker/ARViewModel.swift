@@ -48,7 +48,7 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
             }
         }
     }
-    
+    // MARK: - Set Up Location Manager
     func setupLocationManager() {
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
@@ -63,19 +63,59 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
         locationManager.startUpdatingLocation()
         locationManager.startUpdatingHeading()
     }
+    
     //Delegate for updating location
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-           guard let location = locations.last else { return }
-           
-           // Filter out inaccurate locations
-           if location.horizontalAccuracy < 20 {
-               currentLocation = location
-           }
-       }
+            guard let location = locations.last else { return }
+            currentLocation = location
+            
+            // Optionally fetch nearby stickers when location updates
+            fetchNearbyStickerLocations()
+        }
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+            print("Location manager failed with error: \(error.localizedDescription)")
+        }
+    
     //delegate for updating compass heading
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
            heading = newHeading
        }
+    
+    private func fetchNearbyStickerLocations() {
+            guard let userLocation = currentLocation else {
+                print("Current location not available")
+                return
+            }
+            
+            firebaseManager.fetchNearbyStickerData(
+                latitude: userLocation.coordinate.latitude,
+                longitude: userLocation.coordinate.longitude,
+                radiusInKm: 0.1  // 100 meters
+            ) { [weak self] stickerData in
+                self?.handleReceivedStickerData(stickerData)
+            }
+        }
+    
+    private func handleReceivedStickerData(_ stickerData: [String: Any]) {
+            guard let stickerLat = stickerData["latitude"] as? Double,
+                  let stickerLon = stickerData["longitude"] as? Double,
+                  let currentLocation = self.currentLocation else {
+                return
+            }
+            
+            // Calculate distance to sticker
+            let distanceToSticker = LocationHelper.isLocation(
+                stickerLat, stickerLon,
+                withinRadiusKm: 0.1,  // 100 meters
+                ofLocation: currentLocation.coordinate.latitude,
+                currentLocation.coordinate.longitude
+            )
+            
+            if distanceToSticker {
+                // Sticker is within range, attempt to render it
+                attemptToRenderSticker(stickerData: stickerData)
+            }
+        }
     
     func discoverAndRenderStickers() {
             guard let currentLocation = locationManager.location else { return }
@@ -170,37 +210,89 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
     
     // MARK: - Tap
     @objc func handleTap(_ sender: UITapGestureRecognizer) {
-        guard let currentLocation = currentLocation else {
-            print("Current location not available")
-            return
+           guard let currentLocation = currentLocation else {
+               print("Current location not available")
+               return
+           }
+
+           let location = sender.location(in: arView)
+           let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
+           
+           if let raycastResult = results.first {
+               let worldTransform = raycastResult.worldTransform
+               let anchorEntity = AnchorEntity()
+               anchorEntity.name = "placedObject"
+               anchorEntity.setTransformMatrix(worldTransform, relativeTo: nil)
+               
+               imageName = String(format: "image_%04d", selectedImageIndex)
+               let modelEntity = createModelEntity(img: imageName)
+               anchorEntity.addChild(modelEntity)
+               arView.scene.addAnchor(anchorEntity)
+               
+               // Save the sticker data with location
+               let stickerData: [String: Any] = [
+                "id": anchorEntity.id.description,
+                   "transform": transformToArray(worldTransform),
+                   "name": imageName,
+                   "latitude": currentLocation.coordinate.latitude,
+                   "longitude": currentLocation.coordinate.longitude,
+                   "altitude": currentLocation.altitude,
+                   "horizontalAccuracy": currentLocation.horizontalAccuracy,
+                   "verticalAccuracy": currentLocation.verticalAccuracy,
+                   "timestamp": Date().timeIntervalSince1970
+               ]
+               
+               firebaseManager.saveSticker(data: stickerData) { result in
+                   switch result {
+                   case .success:
+                       print("Sticker saved successfully")
+                   case .failure(let error):
+                       print("Failed to save sticker: \(error.localizedDescription)")
+                   }
+               }
+               
+               anchorEntities.append(anchorEntity)
+           }
+       }
+    
+    private func transformToArray(_ transform: simd_float4x4) -> [Double] {
+           return [
+               Double(transform.columns.0.x), Double(transform.columns.0.y),
+               Double(transform.columns.0.z), Double(transform.columns.0.w),
+               Double(transform.columns.1.x), Double(transform.columns.1.y),
+               Double(transform.columns.1.z), Double(transform.columns.1.w),
+               Double(transform.columns.2.x), Double(transform.columns.2.y),
+               Double(transform.columns.2.z), Double(transform.columns.2.w),
+               Double(transform.columns.3.x), Double(transform.columns.3.y),
+               Double(transform.columns.3.z), Double(transform.columns.3.w)
+           ]
+       }
+    
+    func getDistanceToNearestSticker() -> Double? {
+            guard let userLocation = currentLocation else { return nil }
+            
+            var nearestDistance: Double?
+            
+            for anchor in anchorEntities {
+                // Get the world position of the anchor
+                let position = anchor.position(relativeTo: nil)
+                
+                // Convert position to geographic coordinates (this is approximate)
+                // You would need to implement a proper conversion based on your needs
+                let stickerLocation = CLLocation(
+                    latitude: userLocation.coordinate.latitude + Double(position.z) / 111111.0,
+                    longitude: userLocation.coordinate.longitude + Double(position.x) / (111111.0 * cos(userLocation.coordinate.latitude * .pi / 180.0))
+                )
+                
+                let distance = userLocation.distance(from: stickerLocation)
+                
+                if nearestDistance == nil || distance < nearestDistance! {
+                    nearestDistance = distance
+                }
+            }
+            
+            return nearestDistance
         }
-        
-        let location = sender.location(in: arView)
-        let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
-        
-        if let raycastResult = results.first {
-            let worldTransform = raycastResult.worldTransform
-            
-            let anchorEntity = AnchorEntity()
-            anchorEntity.name = "placedObject"
-            
-            anchorEntity.setTransformMatrix(worldTransform, relativeTo: nil)
-            
-            imageName = String(format: "image_%04d", selectedImageIndex)
-            
-            let modelEntity = createModelEntity(img: imageName)
-            anchorEntity.addChild(modelEntity)
-            
-            arView.scene.addAnchor(anchorEntity)
-            
-            anchorEntities.append(anchorEntity)
-            
-            // Save anchor with geolocation
-            saveCurrentAnchor(anchorEntity: anchorEntity, location: currentLocation)
-        } else {
-            print("No valid raycast result found.")
-        }
-    }
     
     // MARK: - Model Creation
     private func createModelEntity(img: String) -> ModelEntity {
@@ -239,8 +331,17 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
     
     func saveCurrentAnchor(anchorEntity: AnchorEntity, location: CLLocation) {
            let transformMatrix = anchorEntity.transform.matrix
-           let transformArray = transformMatrix.columns.flatMap { $0.map(Double.init) }
-           
+           //let transformArray = transformMatrix.columns.flatMap { $0.map(Double.init) }
+        let transformArray: [Double] = [
+            Double(transformMatrix.columns.0[0]), Double(transformMatrix.columns.0[1]),
+            Double(transformMatrix.columns.0[2]), Double(transformMatrix.columns.0[3]),
+            Double(transformMatrix.columns.1[0]), Double(transformMatrix.columns.1[1]),
+            Double(transformMatrix.columns.1[2]), Double(transformMatrix.columns.1[3]),
+            Double(transformMatrix.columns.2[0]), Double(transformMatrix.columns.2[1]),
+            Double(transformMatrix.columns.2[2]), Double(transformMatrix.columns.2[3]),
+            Double(transformMatrix.columns.3[0]), Double(transformMatrix.columns.3[1]),
+            Double(transformMatrix.columns.3[2]), Double(transformMatrix.columns.3[3])
+        ]
            // Capture current frame for feature extraction
            guard let currentFrame = arView.session.currentFrame else { return }
            
@@ -262,9 +363,9 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
            ]
            
            // Extract visual features
-           if let features = extractVisualFeatures(from: currentFrame) {
-               stickerData["visualFeatures"] = features
-           }
+//           if let features = extractVisualFeatures(from: currentFrame) {
+//               stickerData["visualFeatures"] = features
+//           }
            
            // Save plane characteristics if available
            if let planeAnchor = anchorEntity.anchor as? ARPlaneAnchor {
@@ -275,7 +376,16 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
                ]
            }
            
-           firebaseManager.saveAnchor(anchorData: stickerData)
+        firebaseManager.saveSticker(data: stickerData) { result in
+                     switch result {
+                     case .success:
+                         print("Sticker saved successfully")
+                     case .failure(let error):
+                         print("Failed to save sticker: \(error.localizedDescription)")
+                     }
+                 }
+                 
+                 anchorEntities.append(anchorEntity)
        }
     
     func loadSavedAnchors() {
@@ -340,23 +450,23 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
         print("Picked Sticker number: \(selectedImageIndex)")
     }
     
-    private func extractVisualFeatures(from frame: ARFrame) -> [[Float]]? {
-            guard let pixelBuffer = frame.capturedImage else { return nil }
-            
-            let request = VNDetectImageFeaturesRequest()
-            let handler = VNImageRequestHandler(ciImage: CIImage(cvPixelBuffer: pixelBuffer), orientation: .up)
-            
-            do {
-                try handler.perform([request])
-                if let results = request.results as? [VNFeature],
-                   let firstResult = results.first,
-                   let points = firstResult.points {
-                    return points.map { [$0.x, $0.y] }
-                }
-            } catch {
-                print("Failed to extract visual features: \(error)")
-            }
-            
-            return nil
-        }
+//    private func extractVisualFeatures(from frame: ARFrame) -> [[Float]]? {
+//            guard let pixelBuffer = frame.capturedImage else { return nil }
+//            
+//            let request = VNDetectImageFeaturesRequest()
+//            let handler = VNImageRequestHandler(ciImage: CIImage(cvPixelBuffer: pixelBuffer), orientation: .up)
+//            
+//            do {
+//                try handler.perform([request])
+//                if let results = request.results as? [VNFeature],
+//                   let firstResult = results.first,
+//                   let points = firstResult.points {
+//                    return points.map { [$0.x, $0.y] }
+//                }
+//            } catch {
+//                print("Failed to extract visual features: \(error)")
+//            }
+//            
+//            return nil
+//        }
 }
