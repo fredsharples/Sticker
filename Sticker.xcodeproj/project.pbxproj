@@ -7,10 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		663A24F32CA9B78F00F8AC1D /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 663A24F22CA9B78F00F8AC1D /* FirebaseAuth */; };
-		663A24F52CA9B78F00F8AC1D /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 663A24F42CA9B78F00F8AC1D /* FirebaseFirestore */; };
-		663A24FC2CA9BCD600F8AC1D /* FirebaseDatabase in Frameworks */ = {isa = PBXBuildFile; productRef = 663A24FB2CA9BCD600F8AC1D /* FirebaseDatabase */; };
-		663A95582CBC1DBC0009FBCF /* FocusEntity in Frameworks */ = {isa = PBXBuildFile; productRef = 663A95572CBC1DBC0009FBCF /* FocusEntity */; };
+		66A2D5F32CC7EB83004FC94F /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 66A2D5F22CC7EB83004FC94F /* FirebaseAuth */; };
+		66A2D5F52CC7EB83004FC94F /* FirebaseDatabase in Frameworks */ = {isa = PBXBuildFile; productRef = 66A2D5F42CC7EB83004FC94F /* FirebaseDatabase */; };
+		66A2D5F72CC7EB83004FC94F /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 66A2D5F62CC7EB83004FC94F /* FirebaseFirestore */; };
+		66A2D5F92CC7EB83004FC94F /* FirebaseFirestoreCombine-Community in Frameworks */ = {isa = PBXBuildFile; productRef = 66A2D5F82CC7EB83004FC94F /* FirebaseFirestoreCombine-Community */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,10 +43,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				663A95582CBC1DBC0009FBCF /* FocusEntity in Frameworks */,
-				663A24FC2CA9BCD600F8AC1D /* FirebaseDatabase in Frameworks */,
-				663A24F32CA9B78F00F8AC1D /* FirebaseAuth in Frameworks */,
-				663A24F52CA9B78F00F8AC1D /* FirebaseFirestore in Frameworks */,
+				66A2D5F52CC7EB83004FC94F /* FirebaseDatabase in Frameworks */,
+				66A2D5F92CC7EB83004FC94F /* FirebaseFirestoreCombine-Community in Frameworks */,
+				66A2D5F32CC7EB83004FC94F /* FirebaseAuth in Frameworks */,
+				66A2D5F72CC7EB83004FC94F /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,10 +89,10 @@
 			);
 			name = Sticker;
 			packageProductDependencies = (
-				663A24F22CA9B78F00F8AC1D /* FirebaseAuth */,
-				663A24F42CA9B78F00F8AC1D /* FirebaseFirestore */,
-				663A24FB2CA9BCD600F8AC1D /* FirebaseDatabase */,
-				663A95572CBC1DBC0009FBCF /* FocusEntity */,
+				66A2D5F22CC7EB83004FC94F /* FirebaseAuth */,
+				66A2D5F42CC7EB83004FC94F /* FirebaseDatabase */,
+				66A2D5F62CC7EB83004FC94F /* FirebaseFirestore */,
+				66A2D5F82CC7EB83004FC94F /* FirebaseFirestoreCombine-Community */,
 			);
 			productName = Sticker;
 			productReference = 6655A6792CA3099800706F3B /* Sticker.app */;
@@ -123,8 +123,7 @@
 			mainGroup = 6655A6702CA3099800706F3B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				663A24F12CA9B78F00F8AC1D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
-				663A95562CBC1DBC0009FBCF /* XCRemoteSwiftPackageReference "FocusEntity" */,
+				66A2D5F12CC7EB83004FC94F /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6655A67A2CA3099800706F3B /* Products */;
@@ -368,44 +367,36 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		663A24F12CA9B78F00F8AC1D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+		66A2D5F12CC7EB83004FC94F /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 11.2.0;
-			};
-		};
-		663A95562CBC1DBC0009FBCF /* XCRemoteSwiftPackageReference "FocusEntity" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/maxxfrazer/FocusEntity";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.5.1;
+				minimumVersion = 11.4.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		663A24F22CA9B78F00F8AC1D /* FirebaseAuth */ = {
+		66A2D5F22CC7EB83004FC94F /* FirebaseAuth */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 663A24F12CA9B78F00F8AC1D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			package = 66A2D5F12CC7EB83004FC94F /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAuth;
 		};
-		663A24F42CA9B78F00F8AC1D /* FirebaseFirestore */ = {
+		66A2D5F42CC7EB83004FC94F /* FirebaseDatabase */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 663A24F12CA9B78F00F8AC1D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseFirestore;
-		};
-		663A24FB2CA9BCD600F8AC1D /* FirebaseDatabase */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 663A24F12CA9B78F00F8AC1D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			package = 66A2D5F12CC7EB83004FC94F /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseDatabase;
 		};
-		663A95572CBC1DBC0009FBCF /* FocusEntity */ = {
+		66A2D5F62CC7EB83004FC94F /* FirebaseFirestore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 663A95562CBC1DBC0009FBCF /* XCRemoteSwiftPackageReference "FocusEntity" */;
-			productName = FocusEntity;
+			package = 66A2D5F12CC7EB83004FC94F /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		66A2D5F82CC7EB83004FC94F /* FirebaseFirestoreCombine-Community */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 66A2D5F12CC7EB83004FC94F /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = "FirebaseFirestoreCombine-Community";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

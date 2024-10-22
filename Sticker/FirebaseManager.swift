@@ -29,19 +29,62 @@ class FirebaseManager {
     }
     // MARK: - Save Anchor
     
-    func saveAnchor(anchorData: [String: Any]) {
-            let idString = anchorData["id"] as! String
-            
-            db.collection(anchorsCollection).document(idString).setData(anchorData) { error in
+    func saveSticker(data: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) {
+            db.collection("stickers").addDocument(data: data) { error in
                 if let error = error {
-                    print("Error saving anchor: \(error.localizedDescription)")
+                    completion(.failure(error))
                 } else {
-                    print("Anchor saved successfully with geolocation.")
+                    completion(.success(()))
                 }
             }
         }
     
   
+    func fetchNearbyStickerData(latitude: Double, longitude: Double, radiusInKm: Double, completion: @escaping ([String: Any]) -> Void) {
+            // Convert radius from km to degrees (approximate)
+            let radiusInDegrees = radiusInKm / 111.32
+            
+            let latMin = latitude - radiusInDegrees
+            let latMax = latitude + radiusInDegrees
+            let lonMin = longitude - radiusInDegrees
+            let lonMax = longitude + radiusInDegrees
+            
+            db.collection("stickers")
+                .whereField("latitude", isGreaterThan: latMin)
+                .whereField("latitude", isLessThan: latMax)
+                .getDocuments { (snapshot, error) in
+                    if let error = error {
+                        print("Error getting documents: \(error)")
+                        return
+                    }
+                    
+                    guard let documents = snapshot?.documents else {
+                        print("No documents found")
+                        return
+                    }
+                    
+                    for document in documents {
+                        let data = document.data()
+                        guard let stickerLat = data["latitude"] as? Double,
+                              let stickerLon = data["longitude"] as? Double else {
+                            continue
+                        }
+                        
+                        // Secondary filter for longitude
+                        if stickerLon >= lonMin && stickerLon <= lonMax {
+                            // Calculate precise distance
+                            let stickerLocation = CLLocation(latitude: stickerLat, longitude: stickerLon)
+                            let centerLocation = CLLocation(latitude: latitude, longitude: longitude)
+                            let distance = stickerLocation.distance(from: centerLocation) / 1000 // Convert to km
+                            
+                            if distance <= radiusInKm {
+                                completion(data)
+                            }
+                        }
+                    }
+                }
+        }
+    
     
     // MARK: - Load Anchors
     func loadAnchors(completion: @escaping (Result<[AnchorData], Error>) -> Void) {

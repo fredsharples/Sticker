@@ -38,6 +38,7 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
         setupLocationManager()
         setupMotionManager()
     }
+    
     func setupMotionManager() {
         if motionManager.isDeviceMotionAvailable {
             motionManager.deviceMotionUpdateInterval = 0.1
@@ -76,6 +77,79 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
            heading = newHeading
        }
     
+    func discoverAndRenderStickers() {
+            guard let currentLocation = locationManager.location else { return }
+            
+            // Fetch nearby stickers from Firebase based on current location
+        firebaseManager.fetchNearbyStickerData(latitude: currentLocation.coordinate.latitude,
+                                               longitude: currentLocation.coordinate.longitude,
+                                               radiusInKm: 0.1) { [weak self] stickerData in
+            guard let self = self else { return }
+            self.attemptToRenderSticker(stickerData: stickerData)
+        }
+        }
+    
+    private func attemptToRenderSticker(stickerData: [String: Any]) {
+            guard let transform = stickerData["transform"] as? [Double],
+                  transform.count == 16,
+                  let imageName = stickerData["name"] as? String else { return }
+            
+            let transformMatrix = simd_float4x4(rows: [
+                SIMD4<Float>(Float(transform[0]), Float(transform[1]), Float(transform[2]), Float(transform[3])),
+                SIMD4<Float>(Float(transform[4]), Float(transform[5]), Float(transform[6]), Float(transform[7])),
+                SIMD4<Float>(Float(transform[8]), Float(transform[9]), Float(transform[10]), Float(transform[11])),
+                SIMD4<Float>(Float(transform[12]), Float(transform[13]), Float(transform[14]), Float(transform[15]))
+            ])
+            
+            // Check if we can detect a similar plane
+            if let planeCharacteristics = stickerData["planeCharacteristics"] as? [String: Any],
+               let detectedPlane = findSimilarPlane(characteristics: planeCharacteristics) {
+                renderStickerOnPlane(imageName: imageName, transform: transformMatrix, plane: detectedPlane)
+            } else {
+                // If no similar plane found, try visual feature matching
+                if let visualFeatures = stickerData["visualFeatures"] as? [[Float]],
+                   let matchedTransform = matchVisualFeatures(features: visualFeatures) {
+                    renderStickerAtTransform(imageName: imageName, transform: matchedTransform)
+                } else {
+                    // If all else fails, use the original transform with a warning about potential inaccuracy
+                    renderStickerAtTransform(imageName: imageName, transform: transformMatrix, isAccurate: false)
+                }
+            }
+        }
+    
+    private func findSimilarPlane(characteristics: [String: Any]) -> ARPlaneAnchor? {
+            // Implementation to find a similar plane based on saved characteristics
+            // This would involve comparing the current ARSession's detected planes with the saved characteristics
+            // Return the most similar ARPlaneAnchor if found, nil otherwise
+            return nil // Placeholder
+        }
+        
+        private func matchVisualFeatures(features: [[Float]]) -> simd_float4x4? {
+            // Implementation to match visual features and calculate a transform
+            // This would involve capturing the current frame, extracting features, and comparing with saved features
+            // Return a transform if a good match is found, nil otherwise
+            return nil // Placeholder
+        }
+        
+        private func renderStickerOnPlane(imageName: String, transform: simd_float4x4, plane: ARPlaneAnchor) {
+            let adjustedTransform = transform * plane.transform
+            renderStickerAtTransform(imageName: imageName, transform: adjustedTransform)
+        }
+        
+        private func renderStickerAtTransform(imageName: String, transform: simd_float4x4, isAccurate: Bool = true) {
+            let anchorEntity = AnchorEntity(world: transform)
+            let modelEntity = createModelEntity(img: imageName)
+            anchorEntity.addChild(modelEntity)
+            
+            if !isAccurate {
+                // Add some visual indication that the placement might not be accurate
+                let warningEntity = ModelEntity(mesh: .generateText("⚠️ Approximate location", extrusionDepth: 0.1, font: .systemFont(ofSize: 0.2), containerFrame: .zero, alignment: .center, lineBreakMode: .byWordWrapping))
+                warningEntity.setPosition([0, 0.3, 0], relativeTo: modelEntity)
+                anchorEntity.addChild(warningEntity)
+            }
+            
+            arView.scene.addAnchor(anchorEntity)
+        }
     // MARK: - Setup
     func setupARView() {
         // Configure ARView and ARSession
@@ -164,52 +238,45 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
     
     
     func saveCurrentAnchor(anchorEntity: AnchorEntity, location: CLLocation) {
-            let transformMatrix = anchorEntity.transform.matrix
-            let transformArray: [Double] = [
-                Double(transformMatrix.columns.0.x), Double(transformMatrix.columns.0.y), Double(transformMatrix.columns.0.z), Double(transformMatrix.columns.0.w),
-                Double(transformMatrix.columns.1.x), Double(transformMatrix.columns.1.y), Double(transformMatrix.columns.1.z), Double(transformMatrix.columns.1.w),
-                Double(transformMatrix.columns.2.x), Double(transformMatrix.columns.2.y), Double(transformMatrix.columns.2.z), Double(transformMatrix.columns.2.w),
-                Double(transformMatrix.columns.3.x), Double(transformMatrix.columns.3.y), Double(transformMatrix.columns.3.z), Double(transformMatrix.columns.3.w)
-            ]
-            
-            var anchorData: [String: Any] = [
-                "id": anchorEntity.id.description,
-                "transform": transformArray,
-                "name": imageName,
-                "latitude": location.coordinate.latitude,
-                "longitude": location.coordinate.longitude,
-                "altitude": location.altitude,
-                "horizontalAccuracy": location.horizontalAccuracy,
-                "verticalAccuracy": location.verticalAccuracy,
-                "timestamp": location.timestamp.timeIntervalSince1970
-            ]
-            
-            if let heading = heading {
-                anchorData["heading"] = heading.trueHeading
-                anchorData["headingAccuracy"] = heading.headingAccuracy
-            }
-            
-            if let motion = motionData {
-                anchorData["attitude"] = [
-                    "roll": motion.attitude.roll,
-                    "pitch": motion.attitude.pitch,
-                    "yaw": motion.attitude.yaw
-                ]
-                anchorData["gravity"] = [
-                    "x": motion.gravity.x,
-                    "y": motion.gravity.y,
-                    "z": motion.gravity.z
-                ]
-                anchorData["magneticField"] = [
-                    "x": motion.magneticField.field.x,
-                    "y": motion.magneticField.field.y,
-                    "z": motion.magneticField.field.z,
-                    "accuracy": motion.magneticField.accuracy.rawValue
-                ]
-            }
-            
-            firebaseManager.saveAnchor(anchorData: anchorData)
-        }
+           let transformMatrix = anchorEntity.transform.matrix
+           let transformArray = transformMatrix.columns.flatMap { $0.map(Double.init) }
+           
+           // Capture current frame for feature extraction
+           guard let currentFrame = arView.session.currentFrame else { return }
+           
+           var stickerData: [String: Any] = [
+            "id": anchorEntity.id.description,
+               "transform": transformArray,
+               "name": imageName,
+               "latitude": location.coordinate.latitude,
+               "longitude": location.coordinate.longitude,
+               "altitude": location.altitude,
+               "horizontalAccuracy": location.horizontalAccuracy,
+               "verticalAccuracy": location.verticalAccuracy,
+               "timestamp": location.timestamp.timeIntervalSince1970,
+               "deviceOrientation": [
+                   "pitch": currentFrame.camera.eulerAngles.x,
+                   "yaw": currentFrame.camera.eulerAngles.y,
+                   "roll": currentFrame.camera.eulerAngles.z
+               ]
+           ]
+           
+           // Extract visual features
+           if let features = extractVisualFeatures(from: currentFrame) {
+               stickerData["visualFeatures"] = features
+           }
+           
+           // Save plane characteristics if available
+           if let planeAnchor = anchorEntity.anchor as? ARPlaneAnchor {
+               stickerData["planeCharacteristics"] = [
+                   "center": [planeAnchor.center.x, planeAnchor.center.y, planeAnchor.center.z],
+                   "extent": [planeAnchor.extent.x, planeAnchor.extent.y, planeAnchor.extent.z],
+                   "alignment": planeAnchor.alignment.rawValue
+               ]
+           }
+           
+           firebaseManager.saveAnchor(anchorData: stickerData)
+       }
     
     func loadSavedAnchors() {
         firebaseManager.loadAnchors { [weak self] result in
@@ -272,4 +339,24 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate {
         selectedImageIndex = imageIndex
         print("Picked Sticker number: \(selectedImageIndex)")
     }
+    
+    private func extractVisualFeatures(from frame: ARFrame) -> [[Float]]? {
+            guard let pixelBuffer = frame.capturedImage else { return nil }
+            
+            let request = VNDetectImageFeaturesRequest()
+            let handler = VNImageRequestHandler(ciImage: CIImage(cvPixelBuffer: pixelBuffer), orientation: .up)
+            
+            do {
+                try handler.perform([request])
+                if let results = request.results as? [VNFeature],
+                   let firstResult = results.first,
+                   let points = firstResult.points {
+                    return points.map { [$0.x, $0.y] }
+                }
+            } catch {
+                print("Failed to extract visual features: \(error)")
+            }
+            
+            return nil
+        }
 }

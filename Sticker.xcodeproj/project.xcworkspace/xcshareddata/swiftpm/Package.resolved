@@ -1,5 +1,5 @@
 {
-  "originHash" : "04562efb5215fd35429783a24f65dfd5a9a9a0ee4bf25fe54a37cf8cabfbc23f",
+  "originHash" : "c63c63846d9c539229e96de38d6af51417e28c0ee9a0bc48bd0f0f19d923c329",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -24,17 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/firebase/firebase-ios-sdk",
       "state" : {
-        "revision" : "1fc52ab0e172e7c5a961f975a76c2611f4f22852",
-        "version" : "11.2.0"
-      }
-    },
-    {
-      "identity" : "focusentity",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/maxxfrazer/FocusEntity",
-      "state" : {
-        "revision" : "5fa521172e447cbfa8c2fc1d6602d9d6bed202c7",
-        "version" : "2.5.1"
+        "revision" : "8328630971a8fdd8072b36bb22bef732eb15e1f0",
+        "version" : "11.4.0"
       }
     },
     {
@@ -42,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/google/GoogleAppMeasurement.git",
       "state" : {
-        "revision" : "07a2f57d147d2bf368a0d2dcb5579ff082d9e44f",
-        "version" : "11.1.0"
+        "revision" : "4f234bcbdae841d7015258fbbf8e7743a39b8200",
+        "version" : "11.4.0"
       }
     },
     {
