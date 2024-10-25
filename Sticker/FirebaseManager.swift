@@ -106,7 +106,6 @@ class FirebaseManager : NSObject, ObservableObject {
         }
         
     
-    
     // MARK: - Load Anchors
     func loadAnchors(completion: @escaping (Result<[AnchorData], Error>) -> Void) {
         db.collection(anchorsCollection).getDocuments { snapshot, error in
