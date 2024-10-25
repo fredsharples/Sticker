@@ -7,7 +7,8 @@
 import CoreLocation
 import MapKit
 
-@available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
+@available(iOS 13.0,*)
+/// Manages location services and updates
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let locationManager = CLLocationManager()
     @Published var location: CLLocation?
@@ -15,7 +16,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
         span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
     )
-
+    
     override init() {
         super.init()
         locationManager.delegate = self
@@ -23,12 +24,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         locationManager.requestWhenInUseAuthorization()
         locationManager.startUpdatingLocation()
     }
-
+    
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         self.location = location
         
-        // Only set initial region if it hasn't been set yet
         if self.location == nil {
             region = MKCoordinateRegion(
                 center: location.coordinate,

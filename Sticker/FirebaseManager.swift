@@ -7,104 +7,104 @@ import CoreLocation
 // MARK: - FirebaseManager Class
 class FirebaseManager : NSObject, ObservableObject {
     private let db = Firestore.firestore()
-    private let anchorsCollection = "stickers"
-    
-    @Published var isLoading = false
-    @Published var error: Error?
-    @Published var stickers: [String: Any] = [:]
-    
-    // MARK: - Initialization
-    override init() {
-        super.init()
-        // Optionally, configure Firebase if not done elsewhere
-        // FirebaseApp.configure()
-    }
+        private let anchorsCollection = "stickers"
+        
+        @Published var isLoading = false
+        @Published var error: Error?
+        @Published var stickers: [String: Any] = [:]
+        
+        override init() {
+            super.init()
+        }
     
     // MARK: - Login
-    func loginFirebase(completion: @escaping (Result<User, Error>) -> Void) {
-        AuthManager.shared.signInAnonymously { result in
-            switch result {
-            case .success(let user):
-                print("User signed in anonymously with ID: \(user.uid)")
-                completion(.success(user))
-            case .failure(let error):
-                print("Error signing in: \(error.localizedDescription)")
-                completion(.failure(error))
+    /// Performs anonymous authentication with Firebase
+        /// - Parameter completion: Callback with Result containing User on success or Error on failure
+        func loginFirebase(completion: @escaping (Result<User, Error>) -> Void) {
+            AuthManager.shared.signInAnonymously { result in
+                switch result {
+                case .success(let user):
+                    print("User signed in anonymously with ID: \(user.uid)")
+                    completion(.success(user))
+                case .failure(let error):
+                    print("Error signing in: \(error.localizedDescription)")
+                    completion(.failure(error))
+                }
             }
         }
-    }
+    
     // MARK: - Save Anchor
     
-    func saveSticker(data: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) {
-        isLoading = true
-        error = nil
-        
-        db.collection(anchorsCollection).addDocument(data: data) { [weak self] error in
-            guard let self = self else { return }
+    /// Saves a new sticker to Firebase
+        /// - Parameters:
+        ///   - data: Dictionary containing sticker data
+        ///   - completion: Callback with Result indicating success or failure
+        func saveSticker(data: [String: Any], completion: @escaping (Result<Void, Error>) -> Void) {
+            isLoading = true
+            error = nil
             
-            self.isLoading = false
-            
-            if let error = error {
-                self.error = error
-                completion(.failure(error))
-            } else {
-                completion(.success(()))
-            }
-        }
-    }
-    
-    func fetchNearbyStickerData(latitude: Double,
-                                longitude: Double,
-                                radiusInKm: Double,
-                                completion: @escaping ([String: Any]) -> Void) {
-        // Convert radius from km to degrees (approximate)
-        let radiusInDegrees = radiusInKm / 111.32
-        
-        let latMin = latitude - radiusInDegrees
-        let latMax = latitude + radiusInDegrees
-        let lonMin = longitude - radiusInDegrees
-        let lonMax = longitude + radiusInDegrees
-        
-        isLoading = true
-        error = nil
-        
-        db.collection("stickers")
-            .whereField("latitude", isGreaterThan: latMin)
-            .whereField("latitude", isLessThan: latMax)
-            .getDocuments { [weak self] (snapshot, error) in
+            db.collection(anchorsCollection).addDocument(data: data) { [weak self] error in
                 guard let self = self else { return }
-                
                 self.isLoading = false
                 
                 if let error = error {
-                    print("Error getting documents: \(error)")
                     self.error = error
-                    return
-                }
-                
-                guard let documents = snapshot?.documents else {
-                    print("No documents found")
-                    return
-                }
-                
-                for document in documents {
-                    let data = document.data()
-                    guard let stickerLat = data["latitude"] as? Double,
-                          let stickerLon = data["longitude"] as? Double else {
-                        continue
-                    }
-                    
-                    // Secondary filter for longitude and radius
-                    if stickerLon >= lonMin && stickerLon <= lonMax &&
-                        LocationHelper.isLocation(stickerLat, stickerLon,
-                                                  withinRadiusKm: radiusInKm,
-                                                  ofLocation: latitude, longitude) {
-                        self.stickers[document.documentID] = data
-                        completion(data)
-                    }
+                    completion(.failure(error))
+                } else {
+                    completion(.success(()))
                 }
             }
-    }
+        }
+    
+    /// Fetches stickers within a specified radius of a location
+        /// - Parameters:
+        ///   - latitude: Center point latitude
+        ///   - longitude: Center point longitude
+        ///   - radiusInKm: Search radius in kilometers
+        ///   - completion: Callback with sticker data dictionary
+        func fetchNearbyStickerData(latitude: Double,
+                                   longitude: Double,
+                                   radiusInKm: Double,
+                                   completion: @escaping ([String: Any]) -> Void) {
+            let radiusInDegrees = radiusInKm / 111.32
+            let latMin = latitude - radiusInDegrees
+            let latMax = latitude + radiusInDegrees
+            
+            isLoading = true
+            error = nil
+            
+            db.collection(anchorsCollection)
+                .whereField("latitude", isGreaterThan: latMin)
+                .whereField("latitude", isLessThan: latMax)
+                .getDocuments { [weak self] (snapshot, error) in
+                    guard let self = self else { return }
+                    self.isLoading = false
+                    
+                    if let error = error {
+                        print("Error getting documents: \(error)")
+                        self.error = error
+                        return
+                    }
+                    
+                    guard let documents = snapshot?.documents else {
+                        print("No documents found")
+                        return
+                    }
+                    
+                    for document in documents {
+                        let data = document.data()
+                        if LocationHelper.isLocation(
+                            data["latitude"] as? Double ?? 0,
+                            data["longitude"] as? Double ?? 0,
+                            withinRadiusKm: radiusInKm,
+                            ofLocation: latitude, longitude) {
+                            self.stickers[document.documentID] = data
+                            completion(data)
+                        }
+                    }
+                }
+        }
+        
     
     
     // MARK: - Load Anchors
@@ -132,44 +132,36 @@ class FirebaseManager : NSObject, ObservableObject {
     }
     
     // MARK: - Delete All Anchors
-    func deleteAllAnchors(completion: @escaping (Result<Void, Error>) -> Void) {
-        isLoading = true
-        error = nil
-        
-        db.collection(anchorsCollection).getDocuments { [weak self] (snapshot, error) in
-            guard let self = self else { return }
-            
-            if let error = error {
-                self.isLoading = false
-                self.error = error
-                completion(.failure(error))
-                return
-            }
-            
-            guard let snapshot = snapshot else {
-                self.isLoading = false
-                completion(.success(()))
-                return
-            }
-            
-            let batch = self.db.batch()
-            
-            for document in snapshot.documents {
-                batch.deleteDocument(document.reference)
-            }
-            
-            batch.commit { error in
-                self.isLoading = false
-                if let error = error {
-                    self.error = error
-                    completion(.failure(error))
-                } else {
-                    self.stickers.removeAll()
-                    completion(.success(()))
-                }
-            }
-        }
-    }
+    /// Deletes all stickers from Firebase
+       /// - Parameter completion: Callback with Result indicating success or failure
+       func deleteAllAnchors(completion: @escaping (Result<Void, Error>) -> Void) {
+           isLoading = true
+           error = nil
+           
+           db.collection(anchorsCollection).getDocuments { [weak self] (snapshot, error) in
+               guard let self = self else { return }
+               
+               if let error = error {
+                   self.isLoading = false
+                   completion(.failure(error))
+                   return
+               }
+               
+               let batch = self.db.batch()
+               snapshot?.documents.forEach { batch.deleteDocument($0.reference) }
+               
+               batch.commit { error in
+                   self.isLoading = false
+                   if let error = error {
+                       self.error = error
+                       completion(.failure(error))
+                   } else {
+                       self.stickers.removeAll()
+                       completion(.success(()))
+                   }
+               }
+           }
+       }
 }
 
 // MARK: - AuthManager Class
