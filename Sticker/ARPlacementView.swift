@@ -12,6 +12,14 @@ struct ARPlacementView: View {
             ARViewContainer(arViewModel: arViewModel)
                 .edgesIgnoringSafeArea(.all)
             
+            if let distance = arViewModel.getDistanceToNearestSticker() {
+                            Text("Nearest sticker: \(Int(distance)) meters")
+                                .padding()
+                                .background(Color.black.opacity(0.7))
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
+            
             VStack {
                 Spacer().frame(height: 450)
                 Text("Tap to drop your sticker")
