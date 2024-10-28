@@ -19,15 +19,15 @@ struct ARPlacementView: View {
                     .padding(10)
                     .background(Color.black.opacity(0.7))
                     .cornerRadius(10)
-                    
-//                Button(action: arViewModel.saveCurrentAnchor) {
-//                        Text("Save")
-//                           .padding(10)
-//                            .background(Color.blue)
-//                            .foregroundColor(.white)
-//                            .cornerRadius(10)
-//                    }
-             
+                
+                //                Button(action: arViewModel.saveCurrentAnchor) {
+                //                        Text("Save")
+                //                           .padding(10)
+                //                            .background(Color.blue)
+                //                            .foregroundColor(.white)
+                //                            .cornerRadius(10)
+                //                    }
+                
                 Button(action: arViewModel.loadSavedAnchors) {
                     Text("Load")
                         .padding(10)
@@ -37,26 +37,26 @@ struct ARPlacementView: View {
                 }
                 
                 Button("Clear All") {
-                                       arViewModel.clearAll()
-                                   }
-                                   .foregroundColor(.white)
-                                   .padding(10)
-                                   .background(Color.red.opacity(0.7))
-                                   .cornerRadius(10)
+                    arViewModel.clearAll()
+                }
+                .foregroundColor(.white)
+                .padding(10)
+                .background(Color.red.opacity(0.7))
+                .cornerRadius(10)
                 Button("Delete All From Firebase") {
-                                       arViewModel.deleteAllfromFirebase()
-                                   }
-                                   .foregroundColor(.white)
-                                   .padding(10)
-                                   .background(Color.red.opacity(0.7))
-                                   .cornerRadius(10)
+                    arViewModel.deleteAllFromFirebase()
+                }
+                .foregroundColor(.white)
+                .padding(10)
+                .background(Color.red.opacity(0.7))
+                .cornerRadius(10)
             }
             
             
         }
         .navigationBarTitleDisplayMode(.inline)            
-            .onAppear {
-                arViewModel.setSelectedImage(imageIndex: selectedImageIndex)
+        .onAppear {
+            arViewModel.setSelectedImage(imageIndex: selectedImageIndex)
         }
     }
 }

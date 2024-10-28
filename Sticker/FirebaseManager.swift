@@ -122,29 +122,44 @@ class AuthManager {
 }
 
 // MARK: - AnchorData Struct
+// Update this struct in FirebaseManager.swift
 struct AnchorData {
     let id: String
     let transform: simd_float4x4
     let name: String
+    let latitude: Double
+    let longitude: Double
+    let altitude: Double
+    let horizontalAccuracy: Double
+    let verticalAccuracy: Double
+    let timestamp: Double
+    var scale: SIMD3<Float>?
+    var orientation: simd_quatf?
     
     init?(dictionary: [String: Any]) {
-        // Validate and parse 'id'
-        guard let id = dictionary["id"] as? String else {
-            print("Error: 'id' not found or not a String in dictionary: \(dictionary)")
+        // Validate and parse required fields
+        guard let id = dictionary["id"] as? String,
+              let transformArray = dictionary["transform"] as? [Double],
+              transformArray.count == 16,
+              let name = dictionary["name"] as? String,
+              let latitude = dictionary["latitude"] as? Double,
+              let longitude = dictionary["longitude"] as? Double,
+              let altitude = dictionary["altitude"] as? Double,
+              let horizontalAccuracy = dictionary["horizontalAccuracy"] as? Double,
+              let verticalAccuracy = dictionary["verticalAccuracy"] as? Double,
+              let timestamp = dictionary["timestamp"] as? Double else {
+            print("Error: Required fields missing or invalid in dictionary: \(dictionary)")
             return nil
         }
-
-        // Validate and parse 'transform'
-        guard let transformArray = dictionary["transform"] as? [Double], transformArray.count == 16 else {
-            print("Error: 'transform' not found or incorrect format in dictionary: \(dictionary)")
-            return nil
-        }
-
-        // Parse 'name', defaulting if necessary
-        let name = dictionary["name"] as? String ?? "defaultName"
         
         self.id = id
         self.name = name
+        self.latitude = latitude
+        self.longitude = longitude
+        self.altitude = altitude
+        self.horizontalAccuracy = horizontalAccuracy
+        self.verticalAccuracy = verticalAccuracy
+        self.timestamp = timestamp
         
         // Convert the array of Doubles to simd_float4x4
         var columns = [SIMD4<Float>]()
@@ -159,13 +174,45 @@ struct AnchorData {
         }
         self.transform = simd_float4x4(columns: (columns[0], columns[1], columns[2], columns[3]))
         
-        print("Initialized AnchorData with id: \(id), name: \(name), transform: \(transformArray)")
+        // Parse optional scale
+        if let scaleArray = dictionary["scale"] as? [Double] {
+            self.scale = SIMD3<Float>(
+                Float(scaleArray[0]),
+                Float(scaleArray[1]),
+                Float(scaleArray[2])
+            )
+        }
+        
+        // Parse optional orientation
+        if let orientationArray = dictionary["orientation"] as? [Double] {
+            self.orientation = simd_quatf(
+                vector: SIMD4<Float>(
+                    Float(orientationArray[0]),
+                    Float(orientationArray[1]),
+                    Float(orientationArray[2]),
+                    Float(orientationArray[3])
+                )
+            )
+        }
+        
+        print("Initialized AnchorData with id: \(id), name: \(name), location: (\(latitude), \(longitude))")
     }
     
     // Method to convert AnchorData to AnchorEntity
     func toAnchorEntity() -> AnchorEntity {
         let anchorEntity = AnchorEntity(world: transform)
         anchorEntity.name = name
+        
+        // Apply scale if available
+        if let scale = scale {
+            anchorEntity.scale = scale
+        }
+        
+        // Apply orientation if available
+        if let orientation = orientation {
+            anchorEntity.orientation = orientation
+        }
+        
         return anchorEntity
     }
 }

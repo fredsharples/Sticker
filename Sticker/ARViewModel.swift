@@ -4,54 +4,108 @@ import ARKit
 import CoreLocation
 import CoreMotion
 
-class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate, ARSessionDelegate {
-    @Published var arView: ARView = ARView(frame: .zero)
-    let firebaseManager = FirebaseManager()
-    let locationManager = CLLocationManager()
-    let motionManager = CMMotionManager()
-    let pointLight = Entity();
+// MARK: - Error Types
+enum ARStickerError: Error, LocalizedError {
+    case locationUnavailable
+    case raycastFailed
+    case textureLoadFailed
+    case anchorCreationFailed
+    case saveFailed
+    case loadFailed
+    
+    var errorDescription: String? {
+        switch self {
+        case .locationUnavailable:
+            return "Unable to access location. Please check permissions."
+        case .raycastFailed:
+            return "Cannot place sticker here. Try a different surface."
+        case .textureLoadFailed:
+            return "Failed to load sticker image. Please try again."
+        case .anchorCreationFailed:
+            return "Failed to place sticker. Please try again."
+        case .saveFailed:
+            return "Failed to save sticker. Please try again."
+        case .loadFailed:
+            return "Failed to load stickers. Please try again."
+        }
+    }
+}
+
+// MARK: - Sticker State
+enum ARStickerViewState {  // Renamed from ARViewState to ARStickerViewState
+    case initializing
+    case ready
+    case placing
+    case loading
+    case error(ARStickerError)
+}
+
+// MARK: - ARViewModel
+class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSessionDelegate {
+    // MARK: - Published Properties
+    @Published private(set) var state: ARStickerViewState = .initializing  // Updated type
+       @Published private(set) var error: ARStickerError?
+       @Published var arView: ARView
     @Published var currentLocation: CLLocation?
     @Published var heading: CLHeading?
     @Published var motionData: CMDeviceMotion?
+    @Published var selectedImageIndex: Int = 1
+    @Published private(set) var isPlacementEnabled: Bool = false
     
+    // MARK: - Private Properties
+    private let firebaseManager = FirebaseManager()
+    private let locationManager = CLLocationManager()
+    private let motionManager = CMMotionManager()
     private var cameraLight: PointLight?
     private var cameraAnchor: AnchorEntity?
-    
-    private var placedStickers: [(UUID, Int)] = []
-    private var anchorEntities: [AnchorEntity] = [] // Tracking array
-    
+    private var anchorEntities: [AnchorEntity] = []
+    private var selectedEntity: ModelEntity?
     private var imageName: String = ""
-    @Published var selectedImageIndex: Int = 1
+    private let loadingRange: Double = 100 // meters
     
+    // MARK: - Constants
+    private enum Constants {
+        static let stickerSize: SIMD2<Float> = SIMD2(0.2, 0.2)
+        static let minDistance: Float = 0.2
+        static let maxDistance: Float = 3.0
+        static let environmentLightingWeight: Float = 0.5
+        static let roughnessValue: Float = 0.9
+        static let blendingValue: Float = 0.9
+        static let clearcoatValue: Float = 0.9
+        static let clearcoatRoughnessValue: Float = 0.9
+    }
+    
+    // MARK: - Initialization
     override init() {
+        arView = ARView(frame: .zero)
         super.init()
-        // self.setUpFocusEntity()
+        
         setupARView()
-        firebaseManager.loginFirebase { result in
-            switch result {
-            case .success(let user):
-                print("Logged in as user: \(user.uid)")
-                // Optionally, load saved anchors here
-                self.loadSavedAnchors()
-            case .failure(let error):
-                print("Failed to log in: \(error.localizedDescription)")
-            }
-        }
-        setupLocationManager()
-        setupMotionManager()
+        setupLocationServices()
+        setupMotionServices()
         setupLighting()
-    }
-    func setupMotionManager() {
-        if motionManager.isDeviceMotionAvailable {
-            motionManager.deviceMotionUpdateInterval = 0.1
-            motionManager.startDeviceMotionUpdates(to: .main) { [weak self] (motion, error) in
-                guard let motion = motion, error == nil else { return }
-                self?.motionData = motion
-            }
-        }
+        setupGestures()
+        
+        initializeFirebase()
     }
     
-    func setupLocationManager() {
+    // MARK: - Setup Methods
+    private func setupARView() {
+        let configuration = ARWorldTrackingConfiguration()
+        configuration.planeDetection = [.horizontal, .vertical]
+        configuration.environmentTexturing = .automatic
+        configuration.isLightEstimationEnabled = true
+        
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
+            configuration.sceneReconstruction = .meshWithClassification
+        }
+        
+        arView.automaticallyConfigureSession = false
+        arView.session.delegate = self
+        arView.session.run(configuration)
+    }
+    
+    private func setupLocationServices() {
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         locationManager.distanceFilter = kCLDistanceFilterNone
@@ -65,215 +119,261 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate, ARSessi
         locationManager.startUpdatingLocation()
         locationManager.startUpdatingHeading()
     }
-    //Delegate for updating location
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
-        
-        // Filter out inaccurate locations
-        if location.horizontalAccuracy < 20 {
-            currentLocation = location
+    
+    private func setupMotionServices() {
+        if motionManager.isDeviceMotionAvailable {
+            motionManager.deviceMotionUpdateInterval = 0.1
+            motionManager.startDeviceMotionUpdates(to: .main) { [weak self] (motion, error) in
+                guard let motion = motion, error == nil else { return }
+                self?.motionData = motion
+            }
         }
     }
-    //delegate for updating compass heading
-    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
-        heading = newHeading
-    }
-    
-    
     
     private func setupLighting() {
-        // Create camera anchor
         cameraAnchor = AnchorEntity(.camera)
-        
-        // Create and configure point light
         cameraLight = PointLight()
-        cameraLight?.light.color = .white
-        cameraLight?.light.intensity = 5000  // Adjust intensity as needed
-        cameraLight?.light.attenuationRadius = 5.0  // Adjust radius as needed
         
-        // Add light to camera anchor
+        cameraLight?.light.color = .white
+        cameraLight?.light.intensity = 30000
+        cameraLight?.light.attenuationRadius = 50.0
+        
         if let light = cameraLight, let anchor = cameraAnchor {
             anchor.addChild(light)
             arView.scene.addAnchor(anchor)
         }
     }
     
-    private func updateLightPosition() {
-        // The light will automatically follow the camera since it's parented to the camera anchor
-        // No manual position update needed
-    }
-    
-    // MARK: - Setup
-    func setupARView() {
-        // Configure ARView and ARSession
-        let configuration = ARWorldTrackingConfiguration()
-        configuration.planeDetection = [.horizontal, .vertical]
-        configuration.environmentTexturing = .automatic
-        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
-            configuration.sceneReconstruction = .meshWithClassification
-        }
-        arView.automaticallyConfigureSession = false
-        arView.session.run(configuration)
-        
-        // Add tap gesture recognizer
+    private func setupGestures() {
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        let rotationGesture = UIRotationGestureRecognizer(target: self, action: #selector(handleRotation(_:)))
+        let pinchGesture = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+        
         arView.addGestureRecognizer(tapGesture)
-        imageName = String(format: "image_%04d", selectedImageIndex)
-        
-        
-        
-        
-        
+        arView.addGestureRecognizer(panGesture)
+        arView.addGestureRecognizer(rotationGesture)
+        arView.addGestureRecognizer(pinchGesture)
     }
     
-    // MARK: - Tap
-    @objc func handleTap(_ sender: UITapGestureRecognizer) {
+    private func initializeFirebase() {
+            state = .loading
+            firebaseManager.loginFirebase { [weak self] result in
+                switch result {
+                case .success(let user):
+                    print("Logged in as user: \(user.uid)")
+                    self?.loadSavedAnchors()
+                    self?.state = .ready
+                case .failure(let error):
+                    print("Failed to log in: \(error.localizedDescription)")
+                    self?.state = .error(.loadFailed)
+                }
+            }
+        }
+    
+    // MARK: - Gesture Handlers
+    @objc private func handleTap(_ sender: UITapGestureRecognizer) {
+        guard case ARStickerViewState.ready = state else { return }
         guard let currentLocation = currentLocation else {
-            print("Current location not available")
+            state = .error(.locationUnavailable)
             return
         }
         
         let location = sender.location(in: arView)
         let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
         
-        if let raycastResult = results.first {
-            let worldTransform = raycastResult.worldTransform
+        guard let raycastResult = results.first,
+              validateAnchorPlacement(raycastResult) else {
+            state = .error(.raycastFailed)
+            return
+        }
+        
+        placeSticker(at: raycastResult.worldTransform, with: currentLocation)
+    }
+    
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard let selectedEntity = selectedEntity else { return }
+        
+        switch gesture.state {
+        case .changed:
+            let translation = gesture.translation(in: arView)
+            let deltaX = Float(translation.x) * 0.001
+            let deltaY = Float(-translation.y) * 0.001
             
-            let anchorEntity = AnchorEntity()
-            anchorEntity.name = "placedObject"
+            selectedEntity.position += SIMD3<Float>(deltaX, deltaY, 0)
+            gesture.setTranslation(.zero, in: arView)
             
-            anchorEntity.setTransformMatrix(worldTransform, relativeTo: nil)
+        case .ended:
+            if let anchorEntity = selectedEntity.anchor?.anchor as? AnchorEntity {
+                        saveAnchor(anchorEntity: anchorEntity, modelEntity: selectedEntity)
+                    }
             
-            imageName = String(format: "image_%04d", selectedImageIndex)
-            
-            let modelEntity = createModelEntity(img: imageName)
-            anchorEntity.addChild(modelEntity)
-            anchorEntity.addChild(pointLight)
-            arView.scene.addAnchor(anchorEntity)
-            
-            anchorEntities.append(anchorEntity)
-            
-            // Save anchor with geolocation
-            saveCurrentAnchor(anchorEntity: anchorEntity, location: currentLocation)
-        } else {
-            print("No valid raycast result found.")
+        default:
+            break
         }
     }
     
-    // MARK: - Model Creation
-    private func createModelEntity(img: String) -> ModelEntity {
-        print("Creating Model with: \(img)")
+    @objc private func handleRotation(_ gesture: UIRotationGestureRecognizer) {
+        guard let selectedEntity = selectedEntity else { return }
         
-        // Keep the same plane mesh generation
-        let mesh = MeshResource.generatePlane(width: 0.2, depth: 0.2)
+        switch gesture.state {
+        case .changed:
+            let rotation = Float(gesture.rotation)
+            selectedEntity.orientation = simd_quatf(angle: rotation, axis: SIMD3(0, 0, 1))
+            gesture.rotation = 0
+            
+        case .ended:
+            if let anchorEntity = selectedEntity.anchor?.anchor as? AnchorEntity {
+                        saveAnchor(anchorEntity: anchorEntity, modelEntity: selectedEntity)
+                    }
+            
+        default:
+            break
+        }
+    }
+    
+    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        guard let selectedEntity = selectedEntity else { return }
         
-        // Create PhysicallyBasedMaterial instead of UnlitMaterial
+        switch gesture.state {
+        case .changed:
+            let scale = Float(gesture.scale)
+            selectedEntity.scale *= scale
+            gesture.scale = 1
+            
+        case .ended:
+            if let anchorEntity = selectedEntity.anchor?.anchor as? AnchorEntity {
+                        saveAnchor(anchorEntity: anchorEntity, modelEntity: selectedEntity)
+                    }
+            
+        default:
+            break
+        }
+    }
+    
+    // MARK: - Sticker Placement and Management
+    private func placeSticker(at worldTransform: float4x4, with location: CLLocation) {
+        state = .placing
+        
+        let anchorEntity = AnchorEntity()
+        anchorEntity.name = "placedObject"
+        anchorEntity.setTransformMatrix(worldTransform, relativeTo: nil)
+        
+        guard let modelEntity = createModelEntity(img: imageName) else {
+            state = .error(.textureLoadFailed)
+            return
+        }
+        
+        anchorEntity.addChild(modelEntity)
+        arView.scene.addAnchor(anchorEntity)
+        anchorEntities.append(anchorEntity)
+        
+        saveAnchor(anchorEntity: anchorEntity, modelEntity: modelEntity)
+        state = .ready
+    }
+    
+    private func createModelEntity(img: String) -> ModelEntity? {
+        let mesh = MeshResource.generatePlane(width: Constants.stickerSize.x, depth: Constants.stickerSize.y)
         var material = PhysicallyBasedMaterial()
         
-        do {
-            // Load the texture
-            guard let texture = try? TextureResource.load(named: img) else {
-                print("Failed to load texture: \(img)")
-                return ModelEntity()
-            }
-            let roughnessValue = Float(0.9)
-            let blendingValue = Float(0.9)
-            let metallicValue = 0.0;
-            let opacityValue = Float(0.5);
-            let sheenValue = Float(0.5);
-            let normalValue = 0.5;
-            let environmentLightingWeightValue = Float(0.5);
-            let specularValue = 0.5;
-            let alphaValue = 0.5;
-            let normalMapValue = 0.5;
-            let occlusionValue = 0.5;
-            let occlusionMapValue = 0.5;
-            let normalScaleValue = 0.5;
-            let normalMapScaleValue = 0.5;
-            let normalMapScaleBiasValue = 0.5;
-            let occlusionMapScaleBiasValue = 0.5;
-            let normalMapScaleBiasBiasValue = 0.5;
-            let occlusionMapScaleBiasBiasValue = 0.5;
-            let occlusionMapScaleBiasBiasBiasValue = 0.5;
-            
-            // Configure the material
-            material.baseColor.texture = PhysicallyBasedMaterial.Texture(texture)
-
-            material.roughness = .init(floatLiteral: roughnessValue) // Slightly rough to better catch ambient light
-            material.blending = .transparent(opacity: .init(floatLiteral:blendingValue))
-            
-            //material.metallic = 0.5
-            //material.sheen = .init(tint: .white) //bleaches out the sticker
-            material.opacityThreshold = 0.5   // For alpha cutout
-            //material.clearcoatRoughness = 1.0
-            // Set sheen using proper color initialization
-            //let sheenColor = SimpleMaterial.Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
-            //material.sheen = .init(tint: sheenColor)
-            // material.sheen = .init(tint: .white)
-            //            material.emissiveColor = .init(color: .white)
-            //            material.emissiveIntensity = 0.1
-            
-            //material.baseColor. = 1.5  // Increase the brightness of the texture
-            
-            // Improve lighting response
-            //material.specular. = 0.3   // Add some specularity for better light response
-            //            material.clearcoat.value = 0.1  // Slight clearcoat for better light interaction
-            //            material.ambient.value = Color.white // Brighten ambient light response
-            
-            // Enable transparency
-            //material.blending = .transparent(opacity: .init(floatLiteral: 0.9))
-            
-            let modelEntity = ModelEntity(mesh: mesh, materials: [material])
-            
-            modelEntity.components.set(EnvironmentLightingConfigurationComponent(
-                environmentLightingWeight: environmentLightingWeightValue))
-            
-            
-            // Make the ModelEntity double-sided
-            if var model = modelEntity.model {
-                modelEntity.components.set(EnvironmentLightingConfigurationComponent(
-                    environmentLightingWeight: environmentLightingWeightValue))
-                model.materials = model.materials.map { material in
-                    var newMaterial = material as! PhysicallyBasedMaterial
-                    newMaterial.roughness = .init(floatLiteral: roughnessValue)
-                    newMaterial.blending = .transparent(opacity: .init(floatLiteral: blendingValue))
-                    //newMaterial.sheen = .init(tint: .white)
-                    
-                    return newMaterial
-                }
-                modelEntity.model = model
-            }
-            
-            
-            return modelEntity
-            
-        } catch {
-            print("Error creating model entity: \(error)")
-            return ModelEntity()
+        guard let texture = try? TextureResource.load(named: img) else {
+            print("Failed to load texture: \(img)")
+            return nil
         }
+        
+        material.baseColor.texture = PhysicallyBasedMaterial.Texture(texture)
+        material.opacityThreshold = 0.5
+        material.roughness = .init(floatLiteral: Constants.roughnessValue)
+        material.blending = .transparent(opacity: .init(floatLiteral: Constants.blendingValue))
+        material.clearcoat = .init(floatLiteral: Constants.clearcoatValue)
+        material.clearcoatRoughness = .init(floatLiteral: Constants.clearcoatRoughnessValue)
+        
+        let modelEntity = ModelEntity(mesh: mesh, materials: [material])
+        modelEntity.components.set(EnvironmentLightingConfigurationComponent(
+            environmentLightingWeight: Constants.environmentLightingWeight))
+        
+        modelEntity.generateCollisionShapes(recursive: true)
+        return modelEntity
     }
     
+    private func validateAnchorPlacement(_ raycastResult: ARRaycastResult) -> Bool {
+        let position = SIMD3<Float>(
+            raycastResult.worldTransform.columns.3.x,
+            raycastResult.worldTransform.columns.3.y,
+            raycastResult.worldTransform.columns.3.z
+        )
+        let distance = simd_length(position)
+        
+        return distance >= Constants.minDistance && distance <= Constants.maxDistance
+    }
     
-    func saveCurrentAnchor(anchorEntity: AnchorEntity, location: CLLocation) {
-        let transformMatrix = anchorEntity.transform.matrix
-        let transformArray: [Double] = [
-            Double(transformMatrix.columns.0.x), Double(transformMatrix.columns.0.y), Double(transformMatrix.columns.0.z), Double(transformMatrix.columns.0.w),
-            Double(transformMatrix.columns.1.x), Double(transformMatrix.columns.1.y), Double(transformMatrix.columns.1.z), Double(transformMatrix.columns.1.w),
-            Double(transformMatrix.columns.2.x), Double(transformMatrix.columns.2.y), Double(transformMatrix.columns.2.z), Double(transformMatrix.columns.2.w),
-            Double(transformMatrix.columns.3.x), Double(transformMatrix.columns.3.y), Double(transformMatrix.columns.3.z), Double(transformMatrix.columns.3.w)
+    // MARK: - Data Management
+    private func saveAnchor(anchorEntity: AnchorEntity, modelEntity: ModelEntity? = nil) {
+        guard let currentLocation = currentLocation else {
+            state = .error(.locationUnavailable)
+            return
+        }
+        
+        let matrix = anchorEntity.transform.matrix
+        
+        // Break up the transform array into rows
+        let row1 = [
+            Double(matrix.columns.0.x),
+            Double(matrix.columns.0.y),
+            Double(matrix.columns.0.z),
+            Double(matrix.columns.0.w)
         ]
+        
+        let row2 = [
+            Double(matrix.columns.1.x),
+            Double(matrix.columns.1.y),
+            Double(matrix.columns.1.z),
+            Double(matrix.columns.1.w)
+        ]
+        
+        let row3 = [
+            Double(matrix.columns.2.x),
+            Double(matrix.columns.2.y),
+            Double(matrix.columns.2.z),
+            Double(matrix.columns.2.w)
+        ]
+        
+        let row4 = [
+            Double(matrix.columns.3.x),
+            Double(matrix.columns.3.y),
+            Double(matrix.columns.3.z),
+            Double(matrix.columns.3.w)
+        ]
+        
+        // Combine the rows
+        let transformArray = row1 + row2 + row3 + row4
         
         var anchorData: [String: Any] = [
             "id": anchorEntity.id.description,
             "transform": transformArray,
             "name": imageName,
-            "latitude": location.coordinate.latitude,
-            "longitude": location.coordinate.longitude,
-            "altitude": location.altitude,
-            "horizontalAccuracy": location.horizontalAccuracy,
-            "verticalAccuracy": location.verticalAccuracy,
-            "timestamp": location.timestamp.timeIntervalSince1970
+            "latitude": currentLocation.coordinate.latitude,
+            "longitude": currentLocation.coordinate.longitude,
+            "altitude": currentLocation.altitude,
+            "horizontalAccuracy": currentLocation.horizontalAccuracy,
+            "verticalAccuracy": currentLocation.verticalAccuracy,
+            "timestamp": currentLocation.timestamp.timeIntervalSince1970
         ]
+        
+        // Rest of the method remains the same...
+        if let modelEntity = modelEntity {
+            anchorData["scale"] = [
+                Double(modelEntity.scale.x),
+                Double(modelEntity.scale.y),
+                Double(modelEntity.scale.z)
+            ]
+            anchorData["orientation"] = [
+                Double(modelEntity.orientation.vector.x),
+                Double(modelEntity.orientation.vector.y),
+                Double(modelEntity.orientation.vector.z),
+                Double(modelEntity.orientation.vector.w)
+            ]
+        }
         
         if let heading = heading {
             anchorData["heading"] = heading.trueHeading
@@ -302,65 +402,153 @@ class ARViewModel: NSObject, ObservableObject,CLLocationManagerDelegate, ARSessi
         firebaseManager.saveAnchor(anchorData: anchorData)
     }
     
+    // MARK: - Public Methods
     func loadSavedAnchors() {
+        state = .loading
+        
         firebaseManager.loadAnchors { [weak self] result in
             guard let self = self else { return }
+            
             switch result {
             case .success(let anchors):
-                DispatchQueue.main.async {
-                    for anchorData in anchors {
-                        // Convert AnchorData to AnchorEntity
-                        let anchorEntity = anchorData.toAnchorEntity()
-                        
-                        // Create the ModelEntity
-                        let modelEntity = self.createModelEntity(img: anchorData.name)
-                        print("Retrieved Sticker: \(anchorData.name)")
-                        
-                        // Add the ModelEntity to the AnchorEntity
-                        anchorEntity.addChild(modelEntity)
-                        
-                        // Add the AnchorEntity to the scene
-                        self.arView.scene.addAnchor(anchorEntity)
-                        
-                        // Track the loaded anchor
-                        self.anchorEntities.append(anchorEntity)
+                self.placeLoadedAnchors(anchors)
+                self.state = .ready
+                
+            case .failure(let error):
+                print("Failed to load anchors: \(error)")
+                self.state = .error(.loadFailed)
+            }
+        }
+    }
+    
+    private func placeLoadedAnchors(_ anchors: [AnchorData]) {
+        guard let currentLocation = currentLocation else { return }
+        
+        let nearbyAnchors = anchors.filter { anchorData in
+            let anchorLocation = CLLocation(
+                coordinate: CLLocationCoordinate2D(
+                    latitude: anchorData.latitude,
+                    longitude: anchorData.longitude
+                ),
+                altitude: anchorData.altitude,
+                horizontalAccuracy: anchorData.horizontalAccuracy,
+                verticalAccuracy: anchorData.verticalAccuracy,
+                timestamp: Date(timeIntervalSince1970: anchorData.timestamp)
+            )
+            return currentLocation.distance(from: anchorLocation) <= loadingRange
+        }
+        
+        DispatchQueue.main.async {
+            for anchorData in nearbyAnchors {
+                let anchorEntity = anchorData.toAnchorEntity()
+                if let modelEntity = self.createModelEntity(img: anchorData.name) {
+                    // Apply any saved transformations from anchorData
+                    if let scale = anchorData.scale {
+                        modelEntity.scale = scale
                     }
+                    if let orientation = anchorData.orientation {
+                        modelEntity.orientation = orientation
+                    }
+                    
+                    anchorEntity.addChild(modelEntity)
+                    self.arView.scene.addAnchor(anchorEntity)
+                    self.anchorEntities.append(anchorEntity)
                 }
-            case .failure(let error):
-                print("Failed to load anchors: \(error.localizedDescription)")
-                // Optionally, update the UI to reflect the error
             }
         }
     }
-    
-    // MARK: - Clear All Anchors and Models from Scene
-    func clearAll() {
-        // Clear the scene
-        arView.scene.anchors.removeAll()
         
-        // Reset the tracking array
-        anchorEntities.removeAll()
+        func clearAll() {
+            state = .loading
+            arView.scene.anchors.removeAll()
+            anchorEntities.removeAll()
+            selectedEntity = nil
+            state = .ready
+            print("All anchors and models have been cleared from the AR view.")
+        }
         
-        // Reset the focusEntity (reticle)
-        //setUpFocusEntity()
-        print("All anchors and models have been cleared from the AR view.")
-    }
-    
-    func deleteAllfromFirebase() {
-        firebaseManager.deleteAllAnchors { result in
-            switch result {
-            case .success:
-                print("All anchors have been deleted from Firebase")
-                // Optionally update your local state or UI here
-            case .failure(let error):
-                print("Failed to delete anchors: \(error.localizedDescription)")
-                // Handle the error appropriately
+        func deleteAllFromFirebase() {
+            state = .loading
+            firebaseManager.deleteAllAnchors { [weak self] result in
+                guard let self = self else { return }
+                
+                switch result {
+                case .success:
+                    print("All anchors have been deleted from Firebase")
+                    self.clearAll()
+                    self.state = .ready
+                    
+                case .failure(let error):
+                    print("Failed to delete anchors: \(error)")
+                    self.state = .error(.saveFailed)
+                }
             }
         }
+        
+        func setSelectedImage(imageIndex: Int) {
+            selectedImageIndex = imageIndex
+            imageName = String(format: "image_%04d", imageIndex)
+            print("Selected sticker number: \(selectedImageIndex)")
+        }
+        
+        // MARK: - CLLocationManagerDelegate
+        func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+            guard let location = locations.last,
+                  location.horizontalAccuracy < 20 else { return }
+            
+            currentLocation = location
+            
+            // Optionally reload nearby anchors when location significantly changes
+            if shouldReloadAnchors(for: location) {
+                loadSavedAnchors()
+            }
+        }
+        
+        private func shouldReloadAnchors(for newLocation: CLLocation) -> Bool {
+            guard let lastLocation = currentLocation else { return true }
+            let distance = newLocation.distance(from: lastLocation)
+            return distance > loadingRange / 2 // Reload when moved half the loading range
+        }
+        
+        func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+            heading = newHeading
+        }
+        
+        func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+            print("Location manager failed with error: \(error)")
+            state = .error(.locationUnavailable)
+        }
+        
+        // MARK: - ARSessionDelegate
+        func session(_ session: ARSession, didFailWithError error: Error) {
+            print("AR session failed with error: \(error)")
+            state = .error(.anchorCreationFailed)
+        }
+        
+        func sessionWasInterrupted(_ session: ARSession) {
+            print("AR session was interrupted")
+        }
+        
+        func sessionInterruptionEnded(_ session: ARSession) {
+            print("AR session interruption ended")
+            // Optionally reload anchors or reset tracking
+            resetTracking()
+        }
+        
+        private func resetTracking() {
+            let configuration = ARWorldTrackingConfiguration()
+            configuration.planeDetection = [.horizontal, .vertical]
+            configuration.environmentTexturing = .automatic
+            configuration.isLightEstimationEnabled = true
+            
+            arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+            loadSavedAnchors()
+        }
+        
+        // MARK: - Cleanup
+        deinit {
+            motionManager.stopDeviceMotionUpdates()
+            locationManager.stopUpdatingLocation()
+            locationManager.stopUpdatingHeading()
+        }
     }
-    
-    func setSelectedImage(imageIndex: Int) {
-        selectedImageIndex = imageIndex
-        print("Picked Sticker number: \(selectedImageIndex)")
-    }
-}
