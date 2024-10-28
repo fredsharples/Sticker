@@ -131,18 +131,23 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     }
     
     private func setupLighting() {
-        cameraAnchor = AnchorEntity(.camera)
-        cameraLight = PointLight()
-        
-        cameraLight?.light.color = .white
-        cameraLight?.light.intensity = 30000
-        cameraLight?.light.attenuationRadius = 50.0
-        
-        if let light = cameraLight, let anchor = cameraAnchor {
-            anchor.addChild(light)
-            arView.scene.addAnchor(anchor)
+            // Remove existing camera anchor if it exists
+            if let existingAnchor = cameraAnchor {
+                arView.scene.removeAnchor(existingAnchor)
+            }
+            
+            cameraAnchor = AnchorEntity(.camera)
+            cameraLight = PointLight()
+            
+            cameraLight?.light.color = .white
+            cameraLight?.light.intensity = 30000
+            cameraLight?.light.attenuationRadius = 50.0
+            
+            if let light = cameraLight, let anchor = cameraAnchor {
+                anchor.addChild(light)
+                arView.scene.addAnchor(anchor)
+            }
         }
-    }
     
     private func setupGestures() {
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
@@ -458,14 +463,35 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         }
     }
         
-        func clearAll() {
-            state = .loading
-            arView.scene.anchors.removeAll()
-            anchorEntities.removeAll()
-            selectedEntity = nil
-            state = .ready
-            print("All anchors and models have been cleared from the AR view.")
-        }
+    func clearAll() {
+          state = .loading
+          
+          // Remove only sticker anchors, preserving the camera light anchor
+          let stickersToRemove = arView.scene.anchors.filter { anchor in
+              // Keep the camera anchor (which has our light)
+              if let cameraAnchor = cameraAnchor, anchor == cameraAnchor {
+                  return false
+              }
+              return true
+          }
+          
+          stickersToRemove.forEach { anchor in
+              arView.scene.removeAnchor(anchor)
+          }
+          
+          anchorEntities.removeAll()
+          selectedEntity = nil
+          
+          // If somehow the light was removed, recreate it
+          if !arView.scene.anchors.contains(where: { $0 == cameraAnchor }) {
+              setupLighting()
+          }
+          
+          state = .ready
+          print("All sticker anchors have been cleared from the AR view.")
+      }
+    
+    
         
         func deleteAllFromFirebase() {
             state = .loading
@@ -535,13 +561,20 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
             resetTracking()
         }
         
-        private func resetTracking() {
+    private func resetTracking() {
             let configuration = ARWorldTrackingConfiguration()
             configuration.planeDetection = [.horizontal, .vertical]
             configuration.environmentTexturing = .automatic
             configuration.isLightEstimationEnabled = true
             
-            arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+            // Don't remove existing anchors, just reset tracking
+            arView.session.run(configuration, options: [.resetTracking])
+            
+            // If light is missing, recreate it
+            if !arView.scene.anchors.contains(where: { $0 == cameraAnchor }) {
+                setupLighting()
+            }
+            
             loadSavedAnchors()
         }
         
