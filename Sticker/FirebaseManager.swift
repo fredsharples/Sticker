@@ -10,8 +10,7 @@ class FirebaseManager {
     
     // MARK: - Initialization
     init() {
-        // Optionally, configure Firebase if not done elsewhere
-        // FirebaseApp.configure()
+       
     }
     
     // MARK: - Login

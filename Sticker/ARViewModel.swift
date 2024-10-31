@@ -91,19 +91,20 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     
     // MARK: - Setup Methods
     private func setupARView() {
-        let configuration = ARWorldTrackingConfiguration()
-        configuration.planeDetection = [.horizontal, .vertical]
-        configuration.environmentTexturing = .automatic
-        configuration.isLightEstimationEnabled = true
-        
-        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
-            configuration.sceneReconstruction = .meshWithClassification
+            let configuration = ARWorldTrackingConfiguration()
+            configuration.planeDetection = [.horizontal, .vertical]
+            configuration.environmentTexturing = .automatic
+            configuration.isLightEstimationEnabled = true
+            
+            // Enable scene reconstruction if LiDAR is available
+            if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
+                configuration.sceneReconstruction = .meshWithClassification
+            }
+            
+            arView.automaticallyConfigureSession = false
+            arView.session.delegate = self
+            arView.session.run(configuration)
         }
-        
-        arView.automaticallyConfigureSession = false
-        arView.session.delegate = self
-        arView.session.run(configuration)
-    }
     
     private func setupLocationServices() {
         locationManager.delegate = self
@@ -407,8 +408,97 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         firebaseManager.saveAnchor(anchorData: anchorData)
     }
     
+    private func placeLoadedAnchors(_ anchors: [AnchorData]) {
+            guard let currentLocation = currentLocation else { return }
+            
+            let nearbyAnchors = anchors.filter { anchorData in
+                let anchorLocation = CLLocation(
+                    coordinate: CLLocationCoordinate2D(
+                        latitude: anchorData.latitude,
+                        longitude: anchorData.longitude
+                    ),
+                    altitude: anchorData.altitude,
+                    horizontalAccuracy: anchorData.horizontalAccuracy,
+                    verticalAccuracy: anchorData.verticalAccuracy,
+                    timestamp: Date(timeIntervalSince1970: anchorData.timestamp)
+                )
+                return currentLocation.distance(from: anchorLocation) <= loadingRange
+            }
+            
+            // Add anchors one by one with proper surface detection
+            for anchorData in nearbyAnchors {
+                placeSavedAnchor(anchorData)
+            }
+        }
+    
+    private func placeSavedAnchor(_ anchorData: AnchorData) {
+            let origin = anchorData.transform.position
+            
+            // First try: Cast from slightly above the saved position
+            let elevatedOrigin = origin + SIMD3<Float>(0, 0.1, 0) // Move up by 10cm
+            
+            let raycastQuery = ARRaycastQuery(
+                origin: elevatedOrigin,
+                direction: [0, -1, 0], // Down
+                allowing: .estimatedPlane,
+                alignment: .any
+            )
+            
+            let results = arView.session.raycast(raycastQuery)
+            
+            if let firstResult = results.first {
+                // Offset the placement slightly in front of the detected surface
+                var adjustedTransform = firstResult.worldTransform
+                adjustedTransform.columns.3.y += 0.01 // 1cm offset to prevent z-fighting
+                
+                let anchor = ARAnchor(transform: adjustedTransform)
+                arView.session.add(anchor: anchor)
+                
+                let anchorEntity = AnchorEntity(anchor: anchor)
+                if let modelEntity = createModelEntity(img: anchorData.name) {
+                    if let scale = anchorData.scale {
+                        modelEntity.scale = scale
+                    }
+                    if let orientation = anchorData.orientation {
+                        modelEntity.orientation = orientation
+                    }
+                    
+                    modelEntity.generateCollisionShapes(recursive: true)
+                    anchorEntity.addChild(modelEntity)
+                    arView.scene.addAnchor(anchorEntity)
+                    anchorEntities.append(anchorEntity)
+                    print("Successfully placed anchor at adjusted position")
+                }
+            } else {
+                // Fallback: Place at original position but slightly elevated
+                var adjustedTransform = anchorData.transform
+                adjustedTransform.columns.3.y += 0.01 // 1cm offset
+                
+                let anchorEntity = AnchorEntity(world: adjustedTransform)
+                if let modelEntity = createModelEntity(img: anchorData.name) {
+                    if let scale = anchorData.scale {
+                        modelEntity.scale = scale
+                    }
+                    if let orientation = anchorData.orientation {
+                        modelEntity.orientation = orientation
+                    }
+                    
+                    modelEntity.generateCollisionShapes(recursive: true)
+                    anchorEntity.addChild(modelEntity)
+                    arView.scene.addAnchor(anchorEntity)
+                    anchorEntities.append(anchorEntity)
+                    print("Placed at original position with elevation adjustment")
+                }
+            }
+        }
+    
+        
     // MARK: - Public Methods
     func loadSavedAnchors() {
+        if !anchorEntities.isEmpty {
+                    print("Stickers already loaded, ignoring load request")
+                    return
+                }
         state = .loading
         
         firebaseManager.loadAnchors { [weak self] result in
@@ -426,42 +516,7 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         }
     }
     
-    private func placeLoadedAnchors(_ anchors: [AnchorData]) {
-        guard let currentLocation = currentLocation else { return }
-        
-        let nearbyAnchors = anchors.filter { anchorData in
-            let anchorLocation = CLLocation(
-                coordinate: CLLocationCoordinate2D(
-                    latitude: anchorData.latitude,
-                    longitude: anchorData.longitude
-                ),
-                altitude: anchorData.altitude,
-                horizontalAccuracy: anchorData.horizontalAccuracy,
-                verticalAccuracy: anchorData.verticalAccuracy,
-                timestamp: Date(timeIntervalSince1970: anchorData.timestamp)
-            )
-            return currentLocation.distance(from: anchorLocation) <= loadingRange
-        }
-        
-        DispatchQueue.main.async {
-            for anchorData in nearbyAnchors {
-                let anchorEntity = anchorData.toAnchorEntity()
-                if let modelEntity = self.createModelEntity(img: anchorData.name) {
-                    // Apply any saved transformations from anchorData
-                    if let scale = anchorData.scale {
-                        modelEntity.scale = scale
-                    }
-                    if let orientation = anchorData.orientation {
-                        modelEntity.orientation = orientation
-                    }
-                    
-                    anchorEntity.addChild(modelEntity)
-                    self.arView.scene.addAnchor(anchorEntity)
-                    self.anchorEntities.append(anchorEntity)
-                }
-            }
-        }
-    }
+    
         
     func clearAll() {
           state = .loading
@@ -585,3 +640,9 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
             locationManager.stopUpdatingHeading()
         }
     }
+
+private extension simd_float4x4 {
+       var position: SIMD3<Float> {
+           SIMD3<Float>(columns.3.x, columns.3.y, columns.3.z)
+       }
+   }
