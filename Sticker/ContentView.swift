@@ -9,7 +9,7 @@ struct ContentView: View {
                 PickerView(arViewModel: arViewModel)
             }
             .tabItem {
-                Label("Stickers", systemImage: "square.grid.3x3.fill")
+                Label("View", systemImage: "binoculars")
             }
             
             DiscoverView()
