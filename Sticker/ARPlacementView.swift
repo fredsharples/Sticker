@@ -3,50 +3,87 @@ import RealityKit
 import ARKit
 
 struct ARPlacementView: View {
-    
     @ObservedObject var arViewModel: ARViewModel
     let selectedImageIndex: Int
     
     var body: some View {
         ZStack {
+            // AR View takes up full screen
             ARViewContainer(arViewModel: arViewModel)
                 .edgesIgnoringSafeArea(.all)
             
             VStack {
-                Spacer().frame(height: 450)
-                Text("Tap to drop your sticker")
-                    .foregroundColor(.white)
-                    .padding(10)
-                    .background(Color.black.opacity(0.7))
-                    .cornerRadius(10)
-                
-                Button(action: arViewModel.loadSavedAnchors) {
-                    Text("Load")
-                        .padding(10)
-                        .background(Color.blue)
+                // Main content area
+                VStack {
+                    Spacer()
+                    
+                    Text("Tap to drop your sticker")
                         .foregroundColor(.white)
+                        .padding(10)
+                        .background(Color.black.opacity(0.7))
                         .cornerRadius(10)
                 }
                 
-                Button("Clear All") {
-                    arViewModel.clearAll()
+                Spacer()
+                    .frame(height: 10) // Add extra space above the control panel
+                
+                // Control Panel
+                VStack(spacing: 15) {
+                    HStack(spacing: 20) {
+                        Button(action: arViewModel.loadSavedAnchors) {
+                            VStack {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 20))
+                                Text("Load")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(.white)
+                            .frame(width: 60)
+                            .padding(.vertical, 10)
+                            .background(Color.blue)
+                            .cornerRadius(10)
+                        }
+                        
+                        Button(action: arViewModel.clearAll) {
+                            VStack {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 24))
+                                Text("Clear")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(.white)
+                            .frame(width: 60)
+                            .padding(.vertical, 10)
+                            .background(Color.orange)
+                            .cornerRadius(10)
+                        }
+                        
+                        Button(action: arViewModel.deleteAllFromFirebase) {
+                            VStack {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 18))
+                                Text("Delete")
+                                    .font(.caption)
+                            }
+                            .foregroundColor(.white)
+                            .frame(width: 60)
+                            .padding(.vertical, 10)
+                            .background(Color.red)
+                            .cornerRadius(10)
+                        }
+                    }
                 }
-                .foregroundColor(.white)
-                .padding(10)
-                .background(Color.red.opacity(0.7))
-                .cornerRadius(10)
-                Button("Delete All From Firebase") {
-                    arViewModel.deleteAllFromFirebase()
-                }
-                .foregroundColor(.white)
-                .padding(10)
-                .background(Color.red.opacity(0.7))
-                .cornerRadius(10)
+                .padding(.vertical, 10) // Increased vertical padding inside the control panel
+                .padding(.horizontal)
+                .background(
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(Color.black.opacity(0.75))
+                        .blur(radius: 3)
+                )
+                .padding(.bottom, 30) // Maintain bottom spacing for tab bar
             }
-            
-            
         }
-        .navigationBarTitleDisplayMode(.inline)            
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             arViewModel.setSelectedImage(imageIndex: selectedImageIndex)
         }
