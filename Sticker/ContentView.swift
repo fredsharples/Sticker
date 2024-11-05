@@ -5,17 +5,19 @@ struct ContentView: View {
     
     var body: some View {
         TabView {
-            NavigationView {
+            NavigationStack {
                 PickerView(arViewModel: arViewModel)
             }
             .tabItem {
                 Label("View", systemImage: "binoculars")
             }
+            .padding(.bottom, 8) // Add padding to make tab items taller
             
             DiscoverView()
             .tabItem {
                 Label("Discover", systemImage: "map")
             }
+            .padding(.bottom, 8) // Add padding to make tab items taller
         }
     }
 }

@@ -10,7 +10,7 @@ struct ARPlacementView: View {
         ZStack {
             // AR View takes up full screen
             ARViewContainer(arViewModel: arViewModel)
-                .edgesIgnoringSafeArea(.all)
+                .ignoresSafeArea(edges: [.top, .horizontal]) // Don't ignore bottom safe area
             
             VStack {
                 // Main content area
@@ -80,7 +80,7 @@ struct ARPlacementView: View {
                         .fill(Color.black.opacity(0.75))
                         .blur(radius: 3)
                 )
-                .padding(.bottom, 30) // Maintain bottom spacing for tab bar
+                .padding(.bottom, 10) // Maintain bottom spacing for tab bar
             }
         }
         .navigationBarTitleDisplayMode(.inline)
