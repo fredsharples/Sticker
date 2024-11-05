@@ -54,6 +54,7 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     
     // MARK: - Private Properties
     private var gestureManager: ARGestureManager?
+    private var anchorManager: ARAnchorManager?
     private let firebaseManager = FirebaseManager()
     private let locationManager = CLLocationManager()
     private let motionManager = CMMotionManager()
@@ -105,10 +106,22 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
             arView.session.delegate = self
             arView.session.run(configuration)
             
-            // Initialize gesture manager
-            gestureManager = ARGestureManager(arView: arView)
-            gestureManager?.onAnchorSaveNeeded = { [weak self] anchorEntity, modelEntity in
-                self?.saveAnchor(anchorEntity: anchorEntity, modelEntity: modelEntity)
+            // Initialize anchor manager
+            anchorManager = ARAnchorManager(arView: arView, firebaseManager: firebaseManager)
+            
+            // Setup callbacks
+            anchorManager?.onAnchorLoadingStateChanged = { [weak self] isLoading in
+                self?.state = isLoading ? .loading : .ready
+            }
+            
+            anchorManager?.onError = { [weak self] error in
+                if let stickerError = error as? ARStickerError {
+                    self?.state = .error(stickerError)
+                }
+            }
+            
+            anchorManager?.onAnchorPlaced = { [weak self] anchor in
+                self?.state = .ready
             }
         }
     
@@ -185,23 +198,20 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     
     // MARK: - Gesture Handlers
     @objc private func handleTap(_ sender: UITapGestureRecognizer) {
-        guard case ARStickerViewState.ready = state else { return }
-        guard let currentLocation = currentLocation else {
-            state = .error(.locationUnavailable)
-            return
+            guard case ARStickerViewState.ready = state else { return }
+            
+            let location = sender.location(in: arView)
+            let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
+            
+            if let firstResult = results.first,
+               let currentLocation = currentLocation {
+                anchorManager?.placeNewSticker(
+                    at: firstResult.worldTransform,
+                    location: currentLocation,
+                    imageName: imageName
+                )
+            }
         }
-        
-        let location = sender.location(in: arView)
-        let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
-        
-        guard let raycastResult = results.first,
-              validateAnchorPlacement(raycastResult) else {
-            state = .error(.raycastFailed)
-            return
-        }
-        
-        placeSticker(at: raycastResult.worldTransform, with: currentLocation)
-    }
     
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         guard let selectedEntity = selectedEntity else { return }
@@ -501,56 +511,14 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         
     // MARK: - Public Methods
     func loadSavedAnchors() {
-        if !anchorEntities.isEmpty {
-                    print("Stickers already loaded, ignoring load request")
-                    return
-                }
-        state = .loading
-        
-        firebaseManager.loadAnchors { [weak self] result in
-            guard let self = self else { return }
-            
-            switch result {
-            case .success(let anchors):
-                self.placeLoadedAnchors(anchors)
-                self.state = .ready
-                
-            case .failure(let error):
-                print("Failed to load anchors: \(error)")
-                self.state = .error(.loadFailed)
-            }
+            anchorManager?.loadSavedAnchors(at: currentLocation)
         }
-    }
     
     
         
     func clearAll() {
-          state = .loading
-          
-          // Remove only sticker anchors, preserving the camera light anchor
-          let stickersToRemove = arView.scene.anchors.filter { anchor in
-              // Keep the camera anchor (which has our light)
-              if let cameraAnchor = cameraAnchor, anchor == cameraAnchor {
-                  return false
-              }
-              return true
-          }
-          
-          stickersToRemove.forEach { anchor in
-              arView.scene.removeAnchor(anchor)
-          }
-          
-          anchorEntities.removeAll()
-          selectedEntity = nil
-          
-          // If somehow the light was removed, recreate it
-          if !arView.scene.anchors.contains(where: { $0 == cameraAnchor }) {
-              setupLighting()
-          }
-          
-          state = .ready
-          print("All sticker anchors have been cleared from the AR view.")
-      }
+            anchorManager?.clearAnchors()
+        }
     
     
         
@@ -607,9 +575,12 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         }
         
         // MARK: - ARSessionDelegate
-        func session(_ session: ARSession, didFailWithError error: Error) {
-            print("AR session failed with error: \(error)")
-            state = .error(.anchorCreationFailed)
+    func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
+            for anchor in anchors {
+                if anchor is ARPlaneAnchor {
+                    anchorManager?.addPlaneAnchor()
+                }
+            }
         }
         
         func sessionWasInterrupted(_ session: ARSession) {
