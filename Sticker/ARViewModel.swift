@@ -3,6 +3,7 @@ import RealityKit
 import ARKit
 import CoreLocation
 import CoreMotion
+import Combine
 
 // MARK: - Error Types
 enum ARStickerError: Error, LocalizedError {
@@ -55,8 +56,11 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     // MARK: - Private Properties
     private var gestureManager: ARGestureManager?
     private var anchorManager: ARAnchorManager?
+    private let locationManager: ARLocationManager
+    private var cancellables = Set<AnyCancellable>()
+    
     private let firebaseManager = FirebaseManager()
-    private let locationManager = CLLocationManager()
+
     private let motionManager = CMMotionManager()
     private var cameraLight: PointLight?
     private var cameraAnchor: AnchorEntity?
@@ -80,10 +84,11 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     // MARK: - Initialization
     override init() {
         arView = ARView(frame: .zero)
+        locationManager = ARLocationManager()
         super.init()
         
+        setupBindings()
         setupARView()
-        setupLocationServices()
         setupMotionServices()
         setupLighting()
         setupGestures()
@@ -125,20 +130,24 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
             }
         }
     
-    private func setupLocationServices() {
-        locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
-        locationManager.distanceFilter = kCLDistanceFilterNone
-        locationManager.pausesLocationUpdatesAutomatically = false
+    private func setupBindings() {
+        // Update currentLocation when location manager updates
+        locationManager.$currentLocation
+            .assign(to: \.currentLocation, on: self)
+            .store(in: &cancellables)
         
-        if #available(iOS 11.0, *) {
-            locationManager.showsBackgroundLocationIndicator = true
-        }
+        // Update heading when location manager updates
+        locationManager.$heading
+            .assign(to: \.heading, on: self)
+            .store(in: &cancellables)
         
-        locationManager.requestWhenInUseAuthorization()
-        locationManager.startUpdatingLocation()
-        locationManager.startUpdatingHeading()
+        // Update motion data when location manager updates
+        locationManager.$motionData
+            .assign(to: \.motionData, on: self)
+            .store(in: &cancellables)
     }
+    
+    
     
     private func setupMotionServices() {
         if motionManager.isDeviceMotionAvailable {
@@ -618,9 +627,9 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         // MARK: - Cleanup
         deinit {
             motionManager.stopDeviceMotionUpdates()
-            locationManager.stopUpdatingLocation()
-            locationManager.stopUpdatingHeading()
             gestureManager?.cleanup()
+            motionManager.stopDeviceMotionUpdates()
+                locationManager.cleanup()
         }
     }
 

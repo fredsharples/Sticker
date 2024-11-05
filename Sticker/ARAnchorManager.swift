@@ -55,32 +55,37 @@ class ARAnchorManager {
     }
     
     func loadSavedAnchors(at location: CLLocation?) {
-        guard let location = location else {
-            onError?(ARStickerError.locationUnavailable)
-            return
-        }
-        
-        onAnchorLoadingStateChanged?(true)
-        
-        firebaseManager.loadAnchors { [weak self] result in
-            guard let self = self else { return }
-            
-            switch result {
-            case .success(let anchors):
-                if self.isTrackingReady {
-                    self.placeLoadedAnchors(anchors, at: location)
-                } else {
-                    self.pendingAnchors = anchors
-                    print("Tracking not ready, queued \(anchors.count) anchors")
-                }
-                
-            case .failure(let error):
-                self.onError?(error)
+            guard let location = location else {
+                print("🔍 Location not available for loading anchors")
+                onError?(ARStickerError.locationUnavailable)
+                return
             }
             
-            self.onAnchorLoadingStateChanged?(false)
+            print("🔍 Loading anchors at location: \(location.coordinate)")
+            onAnchorLoadingStateChanged?(true)
+            
+            firebaseManager.loadAnchors { [weak self] result in
+                guard let self = self else { return }
+                
+                switch result {
+                case .success(let anchors):
+                    print("📍 Loaded \(anchors.count) anchors from Firebase")
+                    if self.isTrackingReady {
+                        print("🎯 AR Tracking ready, placing anchors")
+                        self.placeLoadedAnchors(anchors, at: location)
+                    } else {
+                        print("⏳ AR Tracking not ready, queuing \(anchors.count) anchors")
+                        self.pendingAnchors = anchors
+                    }
+                    
+                case .failure(let error):
+                    print("❌ Failed to load anchors: \(error)")
+                    self.onError?(error)
+                }
+                
+                self.onAnchorLoadingStateChanged?(false)
+            }
         }
-    }
     
     func placeNewSticker(at worldTransform: float4x4, location: CLLocation, imageName: String) {
             self.currentImageName = imageName  // Store the image name
@@ -121,33 +126,39 @@ class ARAnchorManager {
     }
     
     private func placeLoadedAnchors(_ anchors: [AnchorData], at location: CLLocation) {
-        let nearbyAnchors = anchors.filter { anchorData in
-            let anchorLocation = CLLocation(
-                coordinate: CLLocationCoordinate2D(
-                    latitude: anchorData.latitude,
-                    longitude: anchorData.longitude
-                ),
-                altitude: anchorData.altitude,
-                horizontalAccuracy: anchorData.horizontalAccuracy,
-                verticalAccuracy: anchorData.verticalAccuracy,
-                timestamp: Date(timeIntervalSince1970: anchorData.timestamp)
-            )
-            return location.distance(from: anchorLocation) <= loadingRange
+            let nearbyAnchors = anchors.filter { anchorData in
+                let anchorLocation = CLLocation(
+                    coordinate: CLLocationCoordinate2D(
+                        latitude: anchorData.latitude,
+                        longitude: anchorData.longitude
+                    ),
+                    altitude: anchorData.altitude,
+                    horizontalAccuracy: anchorData.horizontalAccuracy,
+                    verticalAccuracy: anchorData.verticalAccuracy,
+                    timestamp: Date(timeIntervalSince1970: anchorData.timestamp)
+                )
+                let distance = location.distance(from: anchorLocation)
+                print("📏 Anchor distance: \(distance)m, within range: \(distance <= loadingRange)")
+                return distance <= loadingRange
+            }
+            
+            print("🎯 Found \(nearbyAnchors.count) nearby anchors out of \(anchors.count) total")
+            
+            for anchorData in nearbyAnchors {
+                placeSavedAnchor(anchorData)
+            }
         }
-        
-        for anchorData in nearbyAnchors {
-            placeSavedAnchor(anchorData)
-        }
-    }
     
     private func placeSavedAnchor(_ anchorData: AnchorData) {
             guard isTrackingReady else {
-                print("Tracking not ready, deferring anchor placement")
+                print("⏳ Tracking not ready, deferring anchor placement")
                 return
             }
             
+            print("🎯 Placing anchor: \(anchorData.name) at location: (\(anchorData.latitude), \(anchorData.longitude))")
+            
             let origin = anchorData.transform.position
-            let elevatedOrigin = origin + SIMD3<Float>(0, 0.3, 0) // 30cm above
+            let elevatedOrigin = origin + SIMD3<Float>(0, 0.3, 0)
             
             guard let arView = arView else { return }
             
@@ -161,8 +172,9 @@ class ARAnchorManager {
             let results = arView.session.raycast(raycastQuery)
             
             if let firstResult = results.first {
+                print("✅ Found surface for anchor placement")
                 var adjustedTransform = firstResult.worldTransform
-                adjustedTransform.columns.3.y += 0.01 // 1cm offset
+                adjustedTransform.columns.3.y += 0.01
                 
                 let anchorEntity = AnchorEntity(world: adjustedTransform)
                 if let modelEntity = createModelEntity(img: anchorData.name) {
@@ -178,10 +190,12 @@ class ARAnchorManager {
                     arView.scene.addAnchor(anchorEntity)
                     anchorEntities.append(anchorEntity)
                     onAnchorPlaced?(anchorEntity)
-                    print("Successfully placed anchor with image: \(anchorData.name)")
+                    print("✅ Successfully placed anchor")
                 } else {
-                    print("Failed to create model entity for image: \(anchorData.name)")
+                    print("❌ Failed to create model entity for: \(anchorData.name)")
                 }
+            } else {
+                print("⚠️ No surface found for anchor placement")
             }
         }
     
