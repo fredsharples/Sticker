@@ -1,3 +1,11 @@
+//
+//  ARGestureManager.swift
+//  Sticker
+//
+//  Created by Fred Sharples on 11/5/24.
+//
+
+
 import UIKit
 import RealityKit
 import Combine

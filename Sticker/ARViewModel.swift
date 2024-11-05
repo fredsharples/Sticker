@@ -53,6 +53,7 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     @Published private(set) var isPlacementEnabled: Bool = false
     
     // MARK: - Private Properties
+    private var gestureManager: ARGestureManager?
     private let firebaseManager = FirebaseManager()
     private let locationManager = CLLocationManager()
     private let motionManager = CMMotionManager()
@@ -96,7 +97,6 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
             configuration.environmentTexturing = .automatic
             configuration.isLightEstimationEnabled = true
             
-            // Enable scene reconstruction if LiDAR is available
             if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
                 configuration.sceneReconstruction = .meshWithClassification
             }
@@ -104,6 +104,12 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
             arView.automaticallyConfigureSession = false
             arView.session.delegate = self
             arView.session.run(configuration)
+            
+            // Initialize gesture manager
+            gestureManager = ARGestureManager(arView: arView)
+            gestureManager?.onAnchorSaveNeeded = { [weak self] anchorEntity, modelEntity in
+                self?.saveAnchor(anchorEntity: anchorEntity, modelEntity: modelEntity)
+            }
         }
     
     private func setupLocationServices() {
@@ -632,12 +638,18 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
             
             loadSavedAnchors()
         }
+
+        private func updateSelectedEntity(_ entity: ModelEntity?) {
+            selectedEntity = entity
+            gestureManager?.setSelectedEntity(entity)
+        }
         
         // MARK: - Cleanup
         deinit {
             motionManager.stopDeviceMotionUpdates()
             locationManager.stopUpdatingLocation()
             locationManager.stopUpdatingHeading()
+            gestureManager?.cleanup()
         }
     }
 
