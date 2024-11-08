@@ -9,12 +9,18 @@
 import UIKit
 import RealityKit
 import Combine
+import CoreLocation
 
 class ARGestureManager {
     // MARK: - Properties
-    private weak var arView: ARView?
-    private weak var selectedEntity: ModelEntity?
-    private var cancellables = Set<AnyCancellable>()
+       private weak var arView: ARView?
+       private weak var selectedEntity: ModelEntity?
+       private var cancellables = Set<AnyCancellable>()
+       
+       var currentLocation: CLLocation?
+       var imageName: String = ""
+       var isReadyForPlacement: Bool = false
+       var onAnchorPlacementNeeded: ((float4x4, CLLocation, String) -> Void)?
     
     // Callback for when an anchor needs to be saved
     var onAnchorSaveNeeded: ((AnchorEntity, ModelEntity) -> Void)?
@@ -24,6 +30,13 @@ class ARGestureManager {
         self.arView = arView
         setupGestures()
     }
+
+    
+    func updateState(location: CLLocation?, imageName: String, isReady: Bool) {
+           self.currentLocation = location
+           self.imageName = imageName
+           self.isReadyForPlacement = isReady
+       }
     
     // MARK: - Gesture Setup
     private func setupGestures() {
@@ -46,18 +59,31 @@ class ARGestureManager {
     }
     
     // MARK: - Gesture Handlers
-    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
-        guard let arView = arView else { return }
-        
-        let location = gesture.location(in: arView)
-        
-        // Handle entity selection
-        if let entity = arView.entity(at: location) as? ModelEntity {
-            setSelectedEntity(entity)
-        } else {
+    // MARK: - Gesture Handlers
+        @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+            guard let arView = arView else { return }
+            
+            let location = gesture.location(in: arView)
+            
+            // Handle entity selection
+            if let entity = arView.entity(at: location) as? ModelEntity {
+                setSelectedEntity(entity)
+                return
+            }
+            
+            // Handle sticker placement
+            if isReadyForPlacement,
+               let currentLocation = currentLocation {
+                let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
+                
+                if let firstResult = results.first {
+                    onAnchorPlacementNeeded?(firstResult.worldTransform, currentLocation, imageName)
+                }
+            }
+            
             setSelectedEntity(nil)
         }
-    }
+        
     
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         guard let selectedEntity = selectedEntity else { return }

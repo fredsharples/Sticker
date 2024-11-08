@@ -57,8 +57,6 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         setupARView()
         setupMotionServices()
         setupLighting()
-        setupGestures()
-        
         initializeFirebase()
     }
     
@@ -85,6 +83,23 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         
         // Initialize anchor manager after session is configured
         anchorManager = ARAnchorManager(arView: arView, firebaseManager: firebaseManager)
+        gestureManager = ARGestureManager(arView: arView)
+               gestureManager?.onAnchorPlacementNeeded = { [weak self] transform, location, imageName in
+                   self?.anchorManager?.placeNewSticker(
+                       at: transform,
+                       location: location,
+                       imageName: imageName
+                   )
+               }
+        
+    }
+    // Update state when needed
+    private func updateGestureManagerState() {
+        gestureManager?.updateState(
+            location: currentLocation,
+            imageName: imageName,
+            isReady: state == ARStickerViewState.ready
+        )
     }
     
     private func setupBindings() {
@@ -103,8 +118,6 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
             .assign(to: \.motionData, on: self)
             .store(in: &cancellables)
     }
-    
-    
     
     private func setupMotionServices() {
         if motionManager.isDeviceMotionAvailable {
@@ -135,17 +148,6 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         }
     }
     
-    private func setupGestures() {
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        let rotationGesture = UIRotationGestureRecognizer(target: self, action: #selector(handleRotation(_:)))
-        let pinchGesture = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
-        
-        arView.addGestureRecognizer(tapGesture)
-        arView.addGestureRecognizer(panGesture)
-        arView.addGestureRecognizer(rotationGesture)
-        arView.addGestureRecognizer(pinchGesture)
-    }
     
     private func initializeFirebase() {
         state = .loading
@@ -162,82 +164,6 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         }
     }
     
-    // MARK: - Gesture Handlers
-    @objc private func handleTap(_ sender: UITapGestureRecognizer) {
-        guard case ARStickerViewState.ready = state else { return }
-        
-        let location = sender.location(in: arView)
-        let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
-        
-        if let firstResult = results.first,
-           let currentLocation = currentLocation {
-            anchorManager?.placeNewSticker(
-                at: firstResult.worldTransform,
-                location: currentLocation,
-                imageName: imageName
-            )
-        }
-    }
-    
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard let selectedEntity = selectedEntity else { return }
-        
-        switch gesture.state {
-        case .changed:
-            let translation = gesture.translation(in: arView)
-            let deltaX = Float(translation.x) * 0.001
-            let deltaY = Float(-translation.y) * 0.001
-            
-            selectedEntity.position += SIMD3<Float>(deltaX, deltaY, 0)
-            gesture.setTranslation(.zero, in: arView)
-            
-        case .ended:
-            if let anchorEntity = selectedEntity.anchor?.anchor as? AnchorEntity {
-                saveAnchor(anchorEntity: anchorEntity, modelEntity: selectedEntity)
-            }
-            
-        default:
-            break
-        }
-    }
-    
-    @objc private func handleRotation(_ gesture: UIRotationGestureRecognizer) {
-        guard let selectedEntity = selectedEntity else { return }
-        
-        switch gesture.state {
-        case .changed:
-            let rotation = Float(gesture.rotation)
-            selectedEntity.orientation = simd_quatf(angle: rotation, axis: SIMD3(0, 0, 1))
-            gesture.rotation = 0
-            
-        case .ended:
-            if let anchorEntity = selectedEntity.anchor?.anchor as? AnchorEntity {
-                saveAnchor(anchorEntity: anchorEntity, modelEntity: selectedEntity)
-            }
-            
-        default:
-            break
-        }
-    }
-    
-    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
-        guard let selectedEntity = selectedEntity else { return }
-        
-        switch gesture.state {
-        case .changed:
-            let scale = Float(gesture.scale)
-            selectedEntity.scale *= scale
-            gesture.scale = 1
-            
-        case .ended:
-            if let anchorEntity = selectedEntity.anchor?.anchor as? AnchorEntity {
-                saveAnchor(anchorEntity: anchorEntity, modelEntity: selectedEntity)
-            }
-            
-        default:
-            break
-        }
-    }
     
     private func createModelEntity(img: String) -> ModelEntity? {
         let mesh = MeshResource.generatePlane(width: Constants.stickerSize.x, depth: Constants.stickerSize.y)
@@ -388,11 +314,14 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         }
     }
     
-    func setSelectedImage(imageIndex: Int) {
-        selectedImageIndex = imageIndex
-        imageName = String(format: "image_%04d", imageIndex)
-        print("Selected sticker number: \(selectedImageIndex)")
-    }
+    // Call updateGestureManagerState when relevant properties change
+        // For example, in setSelectedImage:
+        func setSelectedImage(imageIndex: Int) {
+            selectedImageIndex = imageIndex
+            imageName = String(format: "image_%04d", imageIndex)
+            updateGestureManagerState()
+            print("Selected sticker number: \(selectedImageIndex)")
+        }
     
     // MARK: - CLLocationManagerDelegate
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -421,6 +350,7 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
             }
         }
     }
+    
     func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
         for anchor in anchors {
             if let planeAnchor = anchor as? ARPlaneAnchor {
@@ -429,6 +359,7 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
             }
         }
     }
+    
     func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
         for anchor in anchors {
             if let planeAnchor = anchor as? ARPlaneAnchor {
@@ -437,6 +368,7 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
             }
         }
     }
+    
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
         print("📷 Camera tracking state changed: \(camera.trackingState)")
         switch camera.trackingState {
@@ -501,11 +433,11 @@ private extension simd_float4x4 {
 // MARK: - Error Types
 enum ARStickerError: Error, LocalizedError {
     case locationUnavailable
-    case raycastFailed
-    case textureLoadFailed
-    case anchorCreationFailed
-    case saveFailed
-    case loadFailed
+      case raycastFailed
+      case textureLoadFailed
+      case anchorCreationFailed
+      case saveFailed
+      case loadFailed
     
     var errorDescription: String? {
         switch self {
@@ -526,10 +458,27 @@ enum ARStickerError: Error, LocalizedError {
 }
 
 // MARK: - Sticker State
-enum ARStickerViewState {  // Renamed from ARViewState to ARStickerViewState
+enum ARStickerViewState: Equatable {
     case initializing
     case ready
     case placing
     case loading
     case error(ARStickerError)
+    
+    static func == (lhs: ARStickerViewState, rhs: ARStickerViewState) -> Bool {
+        switch (lhs, rhs) {
+        case (.initializing, .initializing):
+            return true
+        case (.ready, .ready):
+            return true
+        case (.placing, .placing):
+            return true
+        case (.loading, .loading):
+            return true
+        case (.error(let lhsError), .error(let rhsError)):
+            return lhsError == rhsError
+        default:
+            return false
+        }
+    }
 }
