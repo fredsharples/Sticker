@@ -2,58 +2,57 @@ import SwiftUI
 import MapKit
 import CoreLocation
 
-class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
-    private let locationManager = CLLocationManager()
-    @Published var location: CLLocation?
-    @Published var region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
-        span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
-    )
-
-    override init() {
+// Custom annotation for sticker clusters
+class StickerClusterAnnotation: NSObject, MKAnnotation, Identifiable {
+    let coordinate: CLLocationCoordinate2D
+    let stickerCount: Int
+    let id = UUID()
+    
+    init(coordinate: CLLocationCoordinate2D, stickerCount: Int) {
+        self.coordinate = coordinate
+        self.stickerCount = stickerCount
         super.init()
-        locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.requestWhenInUseAuthorization()
-        locationManager.startUpdatingLocation()
     }
+}
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
-        self.location = location
-        region = MKCoordinateRegion(
-            center: location.coordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
-        )
-    }
+// Helper struct for grouping locations
+private struct LocationGroup {
+    var coordinate: CLLocationCoordinate2D
+    var count: Int
 }
 
 struct DiscoverView: View {
     @StateObject private var locationManager = LocationManager()
-    @State private var annotations: [StickerAnnotation] = []
+    @State private var annotations: [StickerClusterAnnotation] = []
     @State private var searchText = ""
+    private let firebaseManager = FirebaseManager()
     
     var body: some View {
         NavigationView {
             ZStack {
-                Map(coordinateRegion: $locationManager.region, showsUserLocation: true, annotationItems: annotations) { annotation in
+                Map(coordinateRegion: $locationManager.region,
+                    showsUserLocation: true,
+                    annotationItems: annotations) { annotation in
                     MapAnnotation(coordinate: annotation.coordinate) {
-                        Image(systemName: "star.circle.fill")
-                            .foregroundColor(.red)
-                            .frame(width: 44, height: 44)
+                        ZStack {
+                            Circle()
+                                .fill(Color.blue)
+                                .frame(width: 40, height: 40)
+                            
+                            Text(annotation.stickerCount > 999 ? "999+" : "\(annotation.stickerCount)")
+                                .foregroundColor(.white)
+                                .font(.system(size: 14, weight: .bold))
+                        }
                     }
                 }
-                .gesture(DragGesture()
-                    .onEnded { _ in
-                        let newAnnotation = StickerAnnotation(coordinate: locationManager.region.center)
-                        annotations.append(newAnnotation)
-                    }
-                )
                 
                 VStack {
                     Spacer()
                     HStack {
-                        Button(action: centerUserLocation) {
+                        Button(action: {
+                            centerUserLocation()
+                            loadStickers()
+                        }) {
                             Image(systemName: "location.fill")
                                 .padding()
                                 .background(Color.white)
@@ -70,6 +69,53 @@ struct DiscoverView: View {
             .searchable(text: $searchText, prompt: "Search for a location")
             .onSubmit(of: .search) {
                 searchLocation()
+            }
+            .onAppear {
+                loadStickers()
+            }
+        }
+    }
+    
+    private func loadStickers() {
+        firebaseManager.loadAnchors { result in
+            switch result {
+            case .success(let anchors):
+                var groups: [LocationGroup] = []
+                
+                // Process each anchor
+                for anchor in anchors {
+                    let coord = CLLocationCoordinate2D(
+                        latitude: anchor.latitude,
+                        longitude: anchor.longitude
+                    )
+                    let location = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+                    
+                    // Try to find a nearby group
+                    if let index = groups.firstIndex(where: { group in
+                        let groupLocation = CLLocation(
+                            latitude: group.coordinate.latitude,
+                            longitude: group.coordinate.longitude
+                        )
+                        return location.distance(from: groupLocation) <= 50 // 50-meter radius
+                    }) {
+                        // Update existing group
+                        groups[index].count += 1
+                    } else {
+                        // Create new group
+                        groups.append(LocationGroup(coordinate: coord, count: 1))
+                    }
+                }
+                
+                // Convert groups to annotations
+                annotations = groups.map { group in
+                    StickerClusterAnnotation(
+                        coordinate: group.coordinate,
+                        stickerCount: group.count
+                    )
+                }
+                
+            case .failure(let error):
+                print("Failed to load stickers: \(error)")
             }
         }
     }
@@ -101,13 +147,28 @@ struct DiscoverView: View {
     }
 }
 
-struct StickerAnnotation: Identifiable {
-    let id = UUID()
-    let coordinate: CLLocationCoordinate2D
-}
-
-struct DiscoverView_Previews: PreviewProvider {
-    static var previews: some View {
-        DiscoverView()
+class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
+    private let locationManager = CLLocationManager()
+    @Published var location: CLLocation?
+    @Published var region = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+        span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+    )
+    
+    override init() {
+        super.init()
+        locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        locationManager.requestWhenInUseAuthorization()
+        locationManager.startUpdatingLocation()
+    }
+    
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        self.location = location
+        region = MKCoordinateRegion(
+            center: location.coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+        )
     }
 }
