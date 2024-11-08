@@ -281,40 +281,116 @@ class ARAnchorManager {
     }
     
     private func placeSavedAnchor(_ anchorData: AnchorData) {
-        guard isEnvironmentMapped else {
-            pendingAnchors.append(anchorData)
-            return
-        }
-        
-        let origin = anchorData.transform.position
-        var bestPlacement: (transform: float4x4, confidence: Float)?
-        
-        if hasLiDAR {
-            if let meshAnchor = findNearestMeshAnchor(to: origin) {
-                bestPlacement = findOptimalPlacementOnMesh(meshAnchor: meshAnchor, near: origin)
+            guard isEnvironmentMapped else {
+                pendingAnchors.append(anchorData)
+                return
+            }
+            
+            let origin = anchorData.transform.position
+            var bestPlacement: (transform: float4x4, confidence: Float)?
+            
+            if hasLiDAR {
+                if let meshAnchor = findNearestMeshAnchor(to: origin) {
+                    bestPlacement = findOptimalPlacementOnMesh(meshAnchor: meshAnchor, near: origin)
+                }
+            }
+            
+            if bestPlacement == nil {
+                bestPlacement = findPlacementUsingRaycasts(near: origin)
+            }
+            
+            if let placement = bestPlacement {
+                // Create final transform using original orientation
+                var finalTransform = placement.transform
+                
+                // Extract original rotation
+                let originalRotation = simd_quatf(anchorData.transform)
+                let rotMatrix = rotationMatrix(from: originalRotation)
+                
+                // Keep rotation columns from original transform
+                finalTransform.columns.0 = SIMD4<Float>(rotMatrix.columns.0.x, rotMatrix.columns.0.y, rotMatrix.columns.0.z, 0)
+                finalTransform.columns.1 = SIMD4<Float>(rotMatrix.columns.1.x, rotMatrix.columns.1.y, rotMatrix.columns.1.z, 0)
+                finalTransform.columns.2 = SIMD4<Float>(rotMatrix.columns.2.x, rotMatrix.columns.2.y, rotMatrix.columns.2.z, 0)
+                
+                // Use new position
+                finalTransform.columns.3 = placement.transform.columns.3
+                
+                // Add small offset to prevent z-fighting
+                finalTransform.columns.3.y += 0.001
+                
+                createAndPlaceAnchorEntity(transform: finalTransform, anchorData: anchorData)
+            } else {
+                print("⚠️ No suitable surface found, queueing anchor for retry")
+                pendingAnchors.append(anchorData)
             }
         }
-        
-        if bestPlacement == nil {
-            bestPlacement = findPlacementUsingRaycasts(near: origin)
-        }
-        
-        if let placement = bestPlacement {
-            let adjustedTransform = adjustTransformForPlacement(
-                original: anchorData.transform,
-                new: placement.transform,
-                confidence: placement.confidence
-            )
-            
-            createAndPlaceAnchorEntity(
-                transform: adjustedTransform,
-                anchorData: anchorData
-            )
-        } else {
-            print("⚠️ No suitable surface found, queueing anchor for retry")
-            pendingAnchors.append(anchorData)
-        }
-    }
+    
+    
+    private func rotationMatrix(from quaternion: simd_quatf) -> matrix_float4x4 {
+           // Extract components from quaternion.vector (which is a SIMD4<Float>)
+           let x = quaternion.vector.x
+           let y = quaternion.vector.y
+           let z = quaternion.vector.z
+           let w = quaternion.vector.w
+           
+           // Calculate common products once
+           let x2 = x * x
+           let y2 = y * y
+           let z2 = z * z
+           let xy = x * y
+           let xz = x * z
+           let yz = y * z
+           let wx = w * x
+           let wy = w * y
+           let wz = w * z
+           
+           // Create column vectors
+           let column0 = SIMD4<Float>(
+               1.0 - 2.0 * (y2 + z2),
+               2.0 * (xy + wz),
+               2.0 * (xz - wy),
+               0.0
+           )
+           
+           let column1 = SIMD4<Float>(
+               2.0 * (xy - wz),
+               1.0 - 2.0 * (x2 + z2),
+               2.0 * (yz + wx),
+               0.0
+           )
+           
+           let column2 = SIMD4<Float>(
+               2.0 * (xz + wy),
+               2.0 * (yz - wx),
+               1.0 - 2.0 * (x2 + y2),
+               0.0
+           )
+           
+           let column3 = SIMD4<Float>(0.0, 0.0, 0.0, 1.0)
+           
+           // Create matrix from columns
+           return matrix_float4x4(columns: (column0, column1, column2, column3))
+       }
+    
+    
+    private func adjustTransformForPlacement(original: float4x4, new: float4x4, confidence: Float) -> float4x4 {
+           var adjusted = matrix_identity_float4x4
+           
+           // Extract and use original rotation
+           let originalRotation = simd_quatf(original)
+           let rotMatrix = rotationMatrix(from: originalRotation)
+           
+           // Apply rotation
+           adjusted.columns.0 = SIMD4<Float>(rotMatrix.columns.0.x, rotMatrix.columns.0.y, rotMatrix.columns.0.z, 0)
+           adjusted.columns.1 = SIMD4<Float>(rotMatrix.columns.1.x, rotMatrix.columns.1.y, rotMatrix.columns.1.z, 0)
+           adjusted.columns.2 = SIMD4<Float>(rotMatrix.columns.2.x, rotMatrix.columns.2.y, rotMatrix.columns.2.z, 0)
+           
+           // Use new position
+           adjusted.columns.3 = new.columns.3
+           adjusted.columns.3.y += 0.001
+           
+           return adjusted
+       }
     
     func updatePlaneAnchor(_ planeAnchor: ARPlaneAnchor) {
             print("📐 Updating plane anchor: \(planeAnchor.identifier)")
@@ -422,49 +498,37 @@ class ARAnchorManager {
         return bestResult.map { ($0.worldTransform, bestConfidence) }
     }
     
-    private func adjustTransformForPlacement(original: float4x4, new: float4x4, confidence: Float) -> float4x4 {
-        var adjusted = new
-        
-        let originalRotation = simd_quatf(original)
-        let newRotation = simd_quatf(new)
-        let blendedRotation = simd_slerp(newRotation, originalRotation, confidence)
-        
-        adjusted.columns.0 = float4(blendedRotation.act(float3(1, 0, 0)), 0)
-        adjusted.columns.1 = float4(blendedRotation.act(float3(0, 1, 0)), 0)
-        adjusted.columns.2 = float4(blendedRotation.act(float3(0, 0, 1)), 0)
-        
-        adjusted.columns.3.y += 0.001
-        
-        return adjusted
-    }
+   
     
     private func createAndPlaceAnchorEntity(transform: float4x4, anchorData: AnchorData) {
-           // Check if this anchor is already loaded
-           guard !loadedAnchorIds.contains(anchorData.id) else {
-               print("⚠️ Anchor \(anchorData.id) already loaded, skipping")
-               return
-           }
-           
-           let anchorEntity = AnchorEntity(world: transform)
-           if let modelEntity = createModelEntity(img: anchorData.name) {
-               if let scale = anchorData.scale {
-                   modelEntity.scale = scale
-               }
-               if let orientation = anchorData.orientation {
-                   modelEntity.orientation = orientation
-               }
-               
-               modelEntity.generateCollisionShapes(recursive: true)
-               anchorEntity.addChild(modelEntity)
-               arView?.scene.addAnchor(anchorEntity)
-               anchorEntities.append(anchorEntity)
-               loadedAnchorIds.insert(anchorData.id)  // Track that we've loaded this anchor
-               onAnchorPlaced?(anchorEntity)
-               print("✅ Successfully placed anchor entity: \(anchorData.id)")
-           } else {
-               print("❌ Failed to create model entity for: \(anchorData.name)")
-           }
-       }
+            guard !loadedAnchorIds.contains(anchorData.id) else {
+                print("⚠️ Anchor \(anchorData.id) already loaded, skipping")
+                return
+            }
+            
+            let anchorEntity = AnchorEntity(world: transform)
+            anchorEntity.name = anchorData.id
+            
+            if let modelEntity = createModelEntity(img: anchorData.name) {
+                // Apply scale if available
+                if let scale = anchorData.scale {
+                    modelEntity.scale = scale
+                }
+                
+                // Apply orientation if available, otherwise use transform orientation
+                if let orientation = anchorData.orientation {
+                    modelEntity.orientation = orientation
+                }
+                
+                modelEntity.generateCollisionShapes(recursive: true)
+                anchorEntity.addChild(modelEntity)
+                arView?.scene.addAnchor(anchorEntity)
+                anchorEntities.append(anchorEntity)
+                loadedAnchorIds.insert(anchorData.id)
+                onAnchorPlaced?(anchorEntity)
+                print("✅ Successfully placed anchor entity: \(anchorData.id) with orientation: \(modelEntity.orientation)")
+            }
+        }
         
         private func createModelEntity(img: String) -> ModelEntity? {
             let mesh = MeshResource.generatePlane(width: Constants.stickerSize.x, depth: Constants.stickerSize.y)
