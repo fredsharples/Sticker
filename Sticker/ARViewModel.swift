@@ -98,36 +98,27 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     
     // MARK: - Setup Methods
     private func setupARView() {
+            arView.session.delegate = self
+            
             let configuration = ARWorldTrackingConfiguration()
             configuration.planeDetection = [.horizontal, .vertical]
-            configuration.environmentTexturing = .automatic
-            configuration.isLightEstimationEnabled = true
             
-            if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
-                configuration.sceneReconstruction = .meshWithClassification
-            }
-            
-            arView.automaticallyConfigureSession = false
-            arView.session.delegate = self
-            arView.session.run(configuration)
-            
-            // Initialize anchor manager
-            anchorManager = ARAnchorManager(arView: arView, firebaseManager: firebaseManager)
-            
-            // Setup callbacks
-            anchorManager?.onAnchorLoadingStateChanged = { [weak self] isLoading in
-                self?.state = isLoading ? .loading : .ready
-            }
-            
-            anchorManager?.onError = { [weak self] error in
-                if let stickerError = error as? ARStickerError {
-                    self?.state = .error(stickerError)
+            if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+                print("📱 Device supports LiDAR")
+                configuration.sceneReconstruction = .mesh
+                
+                if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
+                    configuration.sceneReconstruction = .meshWithClassification
                 }
+            } else {
+                print("📱 Device does not support LiDAR")
             }
             
-            anchorManager?.onAnchorPlaced = { [weak self] anchor in
-                self?.state = .ready
-            }
+            print("🚀 Starting AR session...")
+            arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+            
+            // Initialize anchor manager after session is configured
+            anchorManager = ARAnchorManager(arView: arView, firebaseManager: firebaseManager)
         }
     
     private func setupBindings() {
@@ -586,9 +577,39 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         // MARK: - ARSessionDelegate
     func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
             for anchor in anchors {
-                if anchor is ARPlaneAnchor {
-                    anchorManager?.addPlaneAnchor()
+                if let planeAnchor = anchor as? ARPlaneAnchor {
+                    print("✨ New plane detected: \(planeAnchor.identifier)")
+                    anchorManager?.updatePlaneAnchor(planeAnchor)
                 }
+            }
+        }
+    func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
+           for anchor in anchors {
+               if let planeAnchor = anchor as? ARPlaneAnchor {
+                   print("🔄 Plane updated: \(planeAnchor.identifier)")
+                   anchorManager?.updatePlaneAnchor(planeAnchor)
+               }
+           }
+       }
+    func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
+            for anchor in anchors {
+                if let planeAnchor = anchor as? ARPlaneAnchor {
+                    print("❌ Plane removed: \(planeAnchor.identifier)")
+                    anchorManager?.removePlaneAnchor(planeAnchor)
+                }
+            }
+        }
+    func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+            print("📷 Camera tracking state changed: \(camera.trackingState)")
+            switch camera.trackingState {
+            case .normal:
+                print("✅ Tracking normal")
+            case .limited(let reason):
+                print("⚠️ Tracking limited: \(reason)")
+            case .notAvailable:
+                print("❌ Tracking not available")
+            @unknown default:
+                break
             }
         }
         
