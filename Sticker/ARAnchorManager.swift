@@ -399,8 +399,8 @@ class ARAnchorManager {
     }
     
     func updatePlaneAnchor(_ planeAnchor: ARPlaneAnchor) {
-        print("📐 Updating plane anchor: \(planeAnchor.identifier)")
-        detectedPlanes[planeAnchor] = planeAnchor.extent.x * planeAnchor.extent.z
+        //print("📐 Updating plane anchor: \(planeAnchor.identifier)")
+        detectedPlanes[planeAnchor] = planeAnchor.planeExtent.width * planeAnchor.planeExtent.height
         evaluateEnvironmentMapping()
     }
     

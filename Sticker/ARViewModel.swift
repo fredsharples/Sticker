@@ -18,6 +18,8 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     @Published var motionData: CMDeviceMotion?
     @Published var selectedImageIndex: Int = 1
     @Published private(set) var isPlacementEnabled: Bool = false
+    @Published private(set) var scanningState: ARAnchorManager.ScanningState = .initializing
+    @Published private(set) var isEnvironmentReady: Bool = false
     
     // MARK: - Private Properties
     private var gestureManager: ARGestureManager?
@@ -83,14 +85,25 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         
         // Initialize anchor manager after session is configured
         anchorManager = ARAnchorManager(arView: arView, firebaseManager: firebaseManager)
+        anchorManager?.onScanningStateChanged = { [weak self] state in
+            DispatchQueue.main.async {
+                self?.scanningState = state
+                if case .ready = state {
+                    self?.isEnvironmentReady = true
+                } else {
+                    self?.isEnvironmentReady = false
+                }
+            }
+        }
+        
         gestureManager = ARGestureManager(arView: arView)
-               gestureManager?.onAnchorPlacementNeeded = { [weak self] transform, location, imageName in
-                   self?.anchorManager?.placeNewSticker(
-                       at: transform,
-                       location: location,
-                       imageName: imageName
-                   )
-               }
+        gestureManager?.onAnchorPlacementNeeded = { [weak self] transform, location, imageName in
+            self?.anchorManager?.placeNewSticker(
+                at: transform,
+                location: location,
+                imageName: imageName
+            )
+        }
         
     }
     // Update state when needed
@@ -287,6 +300,10 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     
     // MARK: - Public Methods
     func loadSavedAnchors() {
+        guard isEnvironmentReady else {
+            print("Environment not ready for loading anchors")
+            return
+        }
         anchorManager?.loadSavedAnchors(at: currentLocation)
     }
     
@@ -315,13 +332,13 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     }
     
     // Call updateGestureManagerState when relevant properties change
-        // For example, in setSelectedImage:
-        func setSelectedImage(imageIndex: Int) {
-            selectedImageIndex = imageIndex
-            imageName = String(format: "image_%04d", imageIndex)
-            updateGestureManagerState()
-            print("Selected sticker number: \(selectedImageIndex)")
-        }
+    // For example, in setSelectedImage:
+    func setSelectedImage(imageIndex: Int) {
+        selectedImageIndex = imageIndex
+        imageName = String(format: "image_%04d", imageIndex)
+        updateGestureManagerState()
+        print("Selected sticker number: \(selectedImageIndex)")
+    }
     
     // MARK: - CLLocationManagerDelegate
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -354,7 +371,7 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
         for anchor in anchors {
             if let planeAnchor = anchor as? ARPlaneAnchor {
-                print("🔄 Plane updated: \(planeAnchor.identifier)")
+                //print("🔄 Plane updated: \(planeAnchor.identifier)")
                 anchorManager?.updatePlaneAnchor(planeAnchor)
             }
         }
@@ -433,11 +450,11 @@ private extension simd_float4x4 {
 // MARK: - Error Types
 enum ARStickerError: Error, LocalizedError {
     case locationUnavailable
-      case raycastFailed
-      case textureLoadFailed
-      case anchorCreationFailed
-      case saveFailed
-      case loadFailed
+    case raycastFailed
+    case textureLoadFailed
+    case anchorCreationFailed
+    case saveFailed
+    case loadFailed
     
     var errorDescription: String? {
         switch self {

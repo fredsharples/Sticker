@@ -2,22 +2,49 @@ import SwiftUI
 import RealityKit
 import ARKit
 
+// UIViewRepresentable for ARView
+struct ARViewContainer: UIViewRepresentable {
+    @ObservedObject var arViewModel: ARViewModel
+    
+    func makeUIView(context: Context) -> ARView {
+        return arViewModel.arView
+    }
+    
+    func updateUIView(_ uiView: ARView, context: Context) {}
+}
+
 struct ARPlacementView: View {
     @ObservedObject var arViewModel: ARViewModel
     let selectedImageIndex: Int
     
     var body: some View {
         ZStack {
-            // AR View takes up full screen
             ARViewContainer(arViewModel: arViewModel)
-                .ignoresSafeArea(edges: [.top, .horizontal]) // Don't ignore bottom safe area
+                .ignoresSafeArea(edges: [.top, .horizontal])
             
             VStack {
-                // Main content area
-                VStack {
-                    Spacer()
-                    
+                // Scanning feedback
+                switch arViewModel.scanningState {
+                case .initializing:
+                    Text("Initializing AR session...")
+                        .foregroundColor(.white)
+                        .padding(10)
+                        .background(Color.black.opacity(0.7))
+                        .cornerRadius(10)
+                case .scanning(let progress):
+                    Text("Scanning environment: \(Int(progress * 100))%")
+                        .foregroundColor(.white)
+                        .padding(10)
+                        .background(Color.black.opacity(0.7))
+                        .cornerRadius(10)
+                case .ready:
                     Text("Tap to drop your sticker")
+                        .foregroundColor(.white)
+                        .padding(10)
+                        .background(Color.black.opacity(0.7))
+                        .cornerRadius(10)
+                case .insufficientFeatures:
+                    Text("Move device to scan more surfaces")
                         .foregroundColor(.white)
                         .padding(10)
                         .background(Color.black.opacity(0.7))
@@ -25,7 +52,6 @@ struct ARPlacementView: View {
                 }
                 
                 Spacer()
-                    .frame(height: 10) // Add extra space above the control panel
                 
                 // Control Panel
                 VStack(spacing: 15) {
@@ -40,9 +66,10 @@ struct ARPlacementView: View {
                             .foregroundColor(.white)
                             .frame(width: 60)
                             .padding(.vertical, 10)
-                            .background(Color.blue)
+                            .background(arViewModel.isEnvironmentReady ? Color.blue : Color.gray)
                             .cornerRadius(10)
                         }
+                        .disabled(!arViewModel.isEnvironmentReady)
                         
                         Button(action: arViewModel.clearAll) {
                             VStack {
@@ -73,14 +100,14 @@ struct ARPlacementView: View {
                         }
                     }
                 }
-                .padding(.vertical, 10) // Increased vertical padding inside the control panel
+                .padding(.vertical, 10)
                 .padding(.horizontal)
                 .background(
                     RoundedRectangle(cornerRadius: 15)
                         .fill(Color.black.opacity(0.75))
                         .blur(radius: 3)
                 )
-                .padding(.bottom, 10) // Maintain bottom spacing for tab bar
+                .padding(.bottom, 10)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -88,14 +115,4 @@ struct ARPlacementView: View {
             arViewModel.setSelectedImage(imageIndex: selectedImageIndex)
         }
     }
-}
-
-struct ARViewContainer: UIViewRepresentable {
-    @ObservedObject var arViewModel: ARViewModel
-    
-    func makeUIView(context: Context) -> ARView {
-        return arViewModel.arView
-    }
-    
-    func updateUIView(_ uiView: ARView, context: Context) {}
 }
