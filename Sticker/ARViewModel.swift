@@ -8,7 +8,7 @@ import Combine
 
 
 // MARK: - ARViewModel
-class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSessionDelegate {
+class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     // MARK: - Published Properties
     @Published private(set) var state: ARStickerViewState = .initializing  // Updated type
     @Published private(set) var error: ARStickerError?
@@ -25,11 +25,15 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     private var gestureManager: ARGestureManager?
     private var anchorManager: ARAnchorManager?
     private let locationManager: ARLocationManager
-    private var cancellables = Set<AnyCancellable>()
+    private var sessionManager: ARSessionManager?
+    
+    
     
     private let firebaseManager = FirebaseManager()
     
     private let motionManager = CMMotionManager()
+    private var cancellables = Set<AnyCancellable>()
+    
     private var cameraLight: PointLight?
     private var cameraAnchor: AnchorEntity?
     private var anchorEntities: [AnchorEntity] = []
@@ -64,7 +68,69 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
     
     // MARK: - Setup Methods
     private func setupARView() {
-        arView.session.delegate = self
+        
+        anchorManager = ARAnchorManager(arView: arView, firebaseManager: firebaseManager)
+           anchorManager?.onScanningStateChanged = { [weak self] state in
+               DispatchQueue.main.async {
+                   self?.scanningState = state
+                   if case .ready = state {
+                       self?.isEnvironmentReady = true
+                   } else {
+                       self?.isEnvironmentReady = false
+                   }
+               }
+           }
+        
+        
+        if let anchorManager = anchorManager {
+                sessionManager = ARSessionManager(arView: arView, anchorManager: anchorManager)
+                
+                // Observe session state
+                sessionManager?.$isSessionReady
+                    .receive(on: DispatchQueue.main)
+                    .sink { [weak self] isReady in
+                        if !isReady {
+                            self?.isEnvironmentReady = false
+                        }
+                    }
+                    .store(in: &cancellables)
+                
+                sessionManager?.$sessionError
+                    .receive(on: DispatchQueue.main)
+                    .compactMap { $0 }
+                    .sink { [weak self] error in
+                        self?.state = .error(.loadFailed)
+                    }
+                    .store(in: &cancellables)
+            }
+        
+        sessionManager?.$isSessionReady
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] isReady in
+                    if !isReady {
+                        self?.isEnvironmentReady = false
+                    }
+                }
+                .store(in: &cancellables)
+            
+            sessionManager?.$sessionError
+                .receive(on: DispatchQueue.main)
+                .compactMap { $0 }
+                .sink { [weak self] error in
+                    self?.state = .error(.loadFailed)
+                }
+                .store(in: &cancellables)
+            
+            // Setup gesture manager
+            gestureManager = ARGestureManager(arView: arView)
+            gestureManager?.onAnchorPlacementNeeded = { [weak self] transform, location, imageName in
+                self?.anchorManager?.placeNewSticker(
+                    at: transform,
+                    location: location,
+                    imageName: imageName
+                )
+            }
+        
         
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.horizontal, .vertical]
@@ -82,19 +148,6 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         
         print("🚀 Starting AR session...")
         arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-        
-        // Initialize anchor manager after session is configured
-        anchorManager = ARAnchorManager(arView: arView, firebaseManager: firebaseManager)
-        anchorManager?.onScanningStateChanged = { [weak self] state in
-            DispatchQueue.main.async {
-                self?.scanningState = state
-                if case .ready = state {
-                    self?.isEnvironmentReady = true
-                } else {
-                    self?.isEnvironmentReady = false
-                }
-            }
-        }
         
         gestureManager = ARGestureManager(arView: arView)
         gestureManager?.onAnchorPlacementNeeded = { [weak self] transform, location, imageName in
@@ -386,29 +439,6 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate, ARSess
         }
     }
     
-    func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
-        print("📷 Camera tracking state changed: \(camera.trackingState)")
-        switch camera.trackingState {
-        case .normal:
-            print("✅ Tracking normal")
-        case .limited(let reason):
-            print("⚠️ Tracking limited: \(reason)")
-        case .notAvailable:
-            print("❌ Tracking not available")
-        @unknown default:
-            break
-        }
-    }
-    
-    func sessionWasInterrupted(_ session: ARSession) {
-        print("AR session was interrupted")
-    }
-    
-    func sessionInterruptionEnded(_ session: ARSession) {
-        print("AR session interruption ended")
-        // Optionally reload anchors or reset tracking
-        resetTracking()
-    }
     
     private func resetTracking() {
         let configuration = ARWorldTrackingConfiguration()

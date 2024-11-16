@@ -148,6 +148,30 @@ class ARAnchorManager {
         }
     }
     
+    func reset() {
+        print("🔄 Resetting ARAnchorManager state...")
+        
+        // Reset all tracking state
+        detectedPlanes.removeAll()
+        isEnvironmentMapped = false
+        isTrackingReady = false
+        
+        // Clear anchor tracking
+        loadedAnchorIds.removeAll()
+        pendingAnchors.removeAll()
+        
+        // Remove any existing anchors from the scene
+        anchorEntities.forEach { anchor in
+            arView?.scene.removeAnchor(anchor)
+        }
+        anchorEntities.removeAll()
+        
+        // Reset scanning state
+        onScanningStateChanged?(.initializing)
+        
+        print("✅ ARAnchorManager reset complete")
+    }
+    
     func placeNewSticker(at worldTransform: float4x4, location: CLLocation, imageName: String) {
         self.currentImageName = imageName
         
