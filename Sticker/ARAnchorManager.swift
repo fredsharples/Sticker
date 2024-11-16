@@ -67,6 +67,9 @@ class ARAnchorManager {
     private var hasLiDAR: Bool = false
     private var scanningStrategy: ScanningStrategy = .standard
     
+    private let viewingAngleThreshold: Float = .pi / 3  // 60 degrees
+    private let placementConfidenceThreshold: Float = 0.7
+    
     // Anchor Management
     private var anchorEntities: [AnchorEntity] = []
     private var loadedAnchorIds: Set<String> = []
@@ -103,6 +106,70 @@ class ARAnchorManager {
     func addPlaneAnchor() {
         evaluateEnvironmentMapping()
     }
+    
+    private func isInFieldOfView(_ position: SIMD3<Float>) -> Bool {
+            guard let arView = arView,
+                  let camera = arView.session.currentFrame?.camera else {
+                return false
+            }
+            
+            // Get camera transform as matrix_float4x4
+            let cameraTransform = camera.transform
+            
+            // Extract camera position and forward direction
+            let cameraPosition = SIMD3<Float>(cameraTransform.columns.3.x,
+                                            cameraTransform.columns.3.y,
+                                            cameraTransform.columns.3.z)
+            
+            // Camera's forward direction is negative z in ARKit
+            let cameraForward = -SIMD3<Float>(cameraTransform.columns.2.x,
+                                             cameraTransform.columns.2.y,
+                                             cameraTransform.columns.2.z)
+            
+            // Calculate vector to position and normalize it
+            let toPosition = position - cameraPosition
+            let toPositionNormalized = simd_normalize(toPosition)
+            
+            // Calculate angle between camera forward and position vector
+            let angle = acos(simd_dot(cameraForward, toPositionNormalized))
+            
+            return angle <= viewingAngleThreshold
+        }
+        
+    private func findMatchingPlane(for transform: float4x4) -> ARPlaneAnchor? {
+            guard let frame = arView?.session.currentFrame else { return nil }
+            
+            let position = transform.position
+            let normal = simd_normalize(SIMD3<Float>(transform.columns.1.x,
+                                                   transform.columns.1.y,
+                                                   transform.columns.1.z))
+            
+            return frame.anchors.compactMap({ anchor -> ARPlaneAnchor? in
+                return anchor as? ARPlaneAnchor
+            }).filter({ (planeAnchor: ARPlaneAnchor) -> Bool in
+                // Get plane's normal vector (Y-axis of the transform)
+                let planeNormal = simd_normalize(SIMD3<Float>(
+                    planeAnchor.transform.columns.1.x,
+                    planeAnchor.transform.columns.1.y,
+                    planeAnchor.transform.columns.1.z
+                ))
+                
+                // Check if position is near the plane
+                let planePosition = SIMD3<Float>(
+                    planeAnchor.transform.columns.3.x,
+                    planeAnchor.transform.columns.3.y,
+                    planeAnchor.transform.columns.3.z
+                )
+                
+                let planeToPoint = position - planePosition
+                let distanceToPlane = abs(simd_dot(planeToPoint, planeNormal))
+                
+                // Check if normals are similar (allowing for some tolerance)
+                let normalAlignment = abs(simd_dot(normal, planeNormal))
+                
+                return distanceToPlane < 0.1 && normalAlignment > 0.9
+            }).first
+        }
     
     func loadSavedAnchors(at location: CLLocation?) {
         guard let location = location else {
@@ -311,49 +378,56 @@ class ARAnchorManager {
     /// Places an anchor from saved data, handling both immediate placement and queueing
     /// - Parameter anchorData: The saved anchor data to place
     private func placeSavedAnchor(_ anchorData: AnchorData) {
-        guard isEnvironmentMapped else {
-            pendingAnchors.append(anchorData)
-            return
-        }
-        
-        let origin = anchorData.transform.position
-        var bestPlacement: (transform: float4x4, confidence: Float)?
-        
-        if hasLiDAR {
-            if let meshAnchor = findNearestMeshAnchor(to: origin) {
-                bestPlacement = findOptimalPlacementOnMesh(meshAnchor: meshAnchor, near: origin)
+            guard isEnvironmentMapped else {
+                pendingAnchors.append(anchorData)
+                return
+            }
+            
+            let origin = SIMD3<Float>(anchorData.transform.columns.3.x,
+                                     anchorData.transform.columns.3.y,
+                                     anchorData.transform.columns.3.z)
+            
+            // Check if anchor is in current field of view
+            guard isInFieldOfView(origin) else {
+                //print("📱 Anchor not in field of view, skipping")
+                return
+            }
+            
+            var bestPlacement: (transform: float4x4, confidence: Float)?
+            
+            if hasLiDAR {
+                if let meshAnchor = findNearestMeshAnchor(to: origin) {
+                    bestPlacement = findOptimalPlacementOnMesh(meshAnchor: meshAnchor, near: origin)
+                }
+            }
+            
+            // If no LiDAR placement or low confidence, try raycast
+            if bestPlacement == nil || (bestPlacement?.confidence ?? 0) < placementConfidenceThreshold {
+                bestPlacement = findPlacementUsingRaycasts(near: origin)
+            }
+            
+            // Only place if we have a high-confidence placement
+            if let placement = bestPlacement, placement.confidence >= placementConfidenceThreshold {
+                var finalTransform = placement.transform
+                
+                // Preserve original orientation
+                let originalRotation = simd_quatf(anchorData.transform)
+                let rotMatrix = rotationMatrix(from: originalRotation)
+                
+                finalTransform.columns.0 = SIMD4<Float>(rotMatrix.columns.0.x, rotMatrix.columns.0.y, rotMatrix.columns.0.z, 0)
+                finalTransform.columns.1 = SIMD4<Float>(rotMatrix.columns.1.x, rotMatrix.columns.1.y, rotMatrix.columns.1.z, 0)
+                finalTransform.columns.2 = SIMD4<Float>(rotMatrix.columns.2.x, rotMatrix.columns.2.y, rotMatrix.columns.2.z, 0)
+                finalTransform.columns.3 = placement.transform.columns.3
+                
+                // Small offset to prevent z-fighting
+                finalTransform.columns.3.y += 0.001
+                
+                createAndPlaceAnchorEntity(transform: finalTransform, anchorData: anchorData)
+            } else {
+                //print("⚠️ No suitable surface found for anchor placement")
+                pendingAnchors.append(anchorData)
             }
         }
-        
-        if bestPlacement == nil {
-            bestPlacement = findPlacementUsingRaycasts(near: origin)
-        }
-        
-        if let placement = bestPlacement {
-            // Create final transform using original orientation
-            var finalTransform = placement.transform
-            
-            // Extract original rotation
-            let originalRotation = simd_quatf(anchorData.transform)
-            let rotMatrix = rotationMatrix(from: originalRotation)
-            
-            // Keep rotation columns from original transform
-            finalTransform.columns.0 = SIMD4<Float>(rotMatrix.columns.0.x, rotMatrix.columns.0.y, rotMatrix.columns.0.z, 0)
-            finalTransform.columns.1 = SIMD4<Float>(rotMatrix.columns.1.x, rotMatrix.columns.1.y, rotMatrix.columns.1.z, 0)
-            finalTransform.columns.2 = SIMD4<Float>(rotMatrix.columns.2.x, rotMatrix.columns.2.y, rotMatrix.columns.2.z, 0)
-            
-            // Use new position
-            finalTransform.columns.3 = placement.transform.columns.3
-            
-            // Add small offset to prevent z-fighting
-            finalTransform.columns.3.y += 0.001
-            
-            createAndPlaceAnchorEntity(transform: finalTransform, anchorData: anchorData)
-        } else {
-            print("⚠️ No suitable surface found, queueing anchor for retry")
-            pendingAnchors.append(anchorData)
-        }
-    }
     
     
     private func rotationMatrix(from quaternion: simd_quatf) -> matrix_float4x4 {
@@ -658,13 +732,21 @@ class ARAnchorManager {
 }
 
 // MARK: - SIMD Extensions
-private extension simd_float4x4 {
+
+
+//private extension float4 {
+//    var xyz: SIMD3<Float> {
+//        return SIMD3<Float>(x, y, z)
+//    }
+//}
+
+private extension matrix_float4x4 {
     var position: SIMD3<Float> {
         return SIMD3<Float>(columns.3.x, columns.3.y, columns.3.z)
     }
 }
 
-private extension float4 {
+private extension SIMD4<Float> {
     var xyz: SIMD3<Float> {
         return SIMD3<Float>(x, y, z)
     }
