@@ -381,21 +381,27 @@ class ARAnchorManager {
         
         // Check if anchor is in current field of view
         guard isInFieldOfView(origin) else {
-            //print("📱 Anchor not in field of view, skipping")
             return
         }
         
         var bestPlacement: (transform: float4x4, confidence: Float)?
         
-        if hasLiDAR {
-            if let meshAnchor = findNearestMeshAnchor(to: origin) {
-                bestPlacement = findOptimalPlacementOnMesh(meshAnchor: meshAnchor, near: origin)
-            }
+        // First try to place using saved plane geometry
+        if let planeGeometry = anchorData.planeGeometry {
+            bestPlacement = findPlacementUsingSavedGeometry(planeGeometry: planeGeometry, near: origin)
         }
         
-        // If no LiDAR placement or low confidence, try raycast
+        // If no placement found with saved geometry, fall back to existing methods
         if bestPlacement == nil || (bestPlacement?.confidence ?? 0) < placementConfidenceThreshold {
-            bestPlacement = findPlacementUsingRaycasts(near: origin)
+            if hasLiDAR {
+                if let meshAnchor = findNearestMeshAnchor(to: origin) {
+                    bestPlacement = findOptimalPlacementOnMesh(meshAnchor: meshAnchor, near: origin)
+                }
+            }
+            
+            if bestPlacement == nil || (bestPlacement?.confidence ?? 0) < placementConfidenceThreshold {
+                bestPlacement = findPlacementUsingRaycasts(near: origin)
+            }
         }
         
         // Only place if we have a high-confidence placement
@@ -411,16 +417,47 @@ class ARAnchorManager {
             finalTransform.columns.2 = SIMD4<Float>(rotMatrix.columns.2.x, rotMatrix.columns.2.y, rotMatrix.columns.2.z, 0)
             finalTransform.columns.3 = placement.transform.columns.3
             
-            // Small offset to prevent z-fighting
-            finalTransform.columns.3.y += 0.001
-            
             createAndPlaceAnchorEntity(transform: finalTransform, anchorData: anchorData)
         } else {
-            //print("⚠️ No suitable surface found for anchor placement")
             pendingAnchors.append(anchorData)
         }
     }
     
+    private func findPlacementUsingSavedGeometry(planeGeometry: PlaneGeometry, near position: SIMD3<Float>) -> (transform: float4x4, confidence: Float)? {
+        guard let frame = arView?.session.currentFrame else { return nil }
+        
+        // Look for detected planes that match our saved geometry
+        let detectedPlanes = frame.anchors.compactMap { $0 as? ARPlaneAnchor }
+        
+        for plane in detectedPlanes {
+            // Get plane normal
+            let planeNormal = SIMD3<Float>(plane.transform.columns.1.x,
+                                          plane.transform.columns.1.y,
+                                          plane.transform.columns.1.z)
+            
+            // Check if normals align (allowing for some tolerance)
+            let normalAlignment = abs(simd_dot(planeNormal, planeGeometry.normal))
+            if normalAlignment > 0.95 { // 95% similarity threshold
+                
+                // Check if the plane size is similar
+                let sizeDifference = abs(simd_length(plane.extent - planeGeometry.extent))
+                let sizeConfidence = max(0, 1 - (sizeDifference / simd_length(planeGeometry.extent)))
+                
+                if sizeConfidence > 0.7 { // 70% size similarity threshold
+                    // Create transform at the nearest point on this plane
+                    var transform = matrix_identity_float4x4
+                    transform.columns.3 = SIMD4<Float>(position.x, position.y, position.z, 1)
+                    
+                    // Calculate confidence based on normal alignment and size similarity
+                    let confidence = (normalAlignment + sizeConfidence) / 2.0
+                    
+                    return (transform, confidence)
+                }
+            }
+        }
+        
+        return nil
+    }
     
     private func rotationMatrix(from quaternion: simd_quatf) -> matrix_float4x4 {
         // Extract components from quaternion.vector (which is a SIMD4<Float>)
@@ -718,6 +755,18 @@ class ARAnchorManager {
             Double(modelEntity.orientation.vector.w)
         ]
         
+        // Update the line to:
+        if let planeAnchor = findMatchingPlane(for: anchorEntity.transform.matrix) {
+            let planeGeometry = PlaneGeometry(
+                center: SIMD3<Float>(planeAnchor.center.x, planeAnchor.center.y, planeAnchor.center.z),
+                extent: planeAnchor.extent,  // This already returns simd_float3
+                normal: SIMD3<Float>(planeAnchor.transform.columns.1.x,
+                                    planeAnchor.transform.columns.1.y,
+                                    planeAnchor.transform.columns.1.z)
+            )
+            anchorData["planeGeometry"] = planeGeometry.dictionary
+        }
+        
         print("💾 Saving anchor data to Firebase")
         firebaseManager.saveAnchor(anchorData: anchorData)
     }
@@ -743,3 +792,4 @@ private extension SIMD4<Float> {
         return SIMD3<Float>(x, y, z)
     }
 }
+

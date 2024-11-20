@@ -477,6 +477,7 @@ private extension simd_float4x4 {
     }
 }
 
+
 // MARK: - Error Types
 enum ARStickerError: Error, LocalizedError {
     case locationUnavailable
@@ -529,3 +530,4 @@ enum ARStickerViewState: Equatable {
         }
     }
 }
+

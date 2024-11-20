@@ -134,6 +134,9 @@ struct AnchorData {
     let timestamp: Double
     var scale: SIMD3<Float>?
     var orientation: simd_quatf?
+    var planeGeometry: PlaneGeometry?
+    
+    
     
     init?(dictionary: [String: Any]) {
         // Validate and parse required fields
@@ -181,6 +184,9 @@ struct AnchorData {
                 Float(scaleArray[2])
             )
         }
+        if let planeGeometryDict = dictionary["planeGeometry"] as? [String: [Double]] {
+                    self.planeGeometry = PlaneGeometry(dictionary: planeGeometryDict)
+                }
         
         // Parse optional orientation
         if let orientationArray = dictionary["orientation"] as? [Double] {
@@ -193,7 +199,7 @@ struct AnchorData {
                 )
             )
         }
-        
+       
         print("Initialized AnchorData with id: \(id), name: \(name), location: (\(latitude), \(longitude))")
     }
     
@@ -213,5 +219,35 @@ struct AnchorData {
         }
         
         return anchorEntity
+    }
+}
+
+struct PlaneGeometry {
+    let center: SIMD3<Float>
+    let extent: SIMD3<Float>
+    let normal: SIMD3<Float>
+    
+    init(center: SIMD3<Float>, extent: SIMD3<Float>, normal: SIMD3<Float>) {
+        self.center = center
+        self.extent = extent
+        self.normal = normal
+    }
+    
+    var dictionary: [String: [Double]] {
+        [
+            "center": [Double(center.x), Double(center.y), Double(center.z)],
+            "extent": [Double(extent.x), Double(extent.y), Double(extent.z)],
+            "normal": [Double(normal.x), Double(normal.y), Double(normal.z)]
+        ]
+    }
+    
+    init?(dictionary: [String: [Double]]) {
+        guard let centerArray = dictionary["center"],
+              let extentArray = dictionary["extent"],
+              let normalArray = dictionary["normal"] else { return nil }
+        
+        self.center = SIMD3<Float>(Float(centerArray[0]), Float(centerArray[1]), Float(centerArray[2]))
+        self.extent = SIMD3<Float>(Float(extentArray[0]), Float(extentArray[1]), Float(extentArray[2]))
+        self.normal = SIMD3<Float>(Float(normalArray[0]), Float(normalArray[1]), Float(normalArray[2]))
     }
 }
