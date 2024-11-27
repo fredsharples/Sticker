@@ -379,19 +379,17 @@ class ARAnchorManager {
                                   anchorData.transform.columns.3.y,
                                   anchorData.transform.columns.3.z)
         
-        // Check if anchor is in current field of view
         guard isInFieldOfView(origin) else {
             return
         }
         
         var bestPlacement: (transform: float4x4, confidence: Float)?
         
-        // First try to place using saved plane geometry
+        // Try placement methods in order of precision
         if let planeGeometry = anchorData.planeGeometry {
             bestPlacement = findPlacementUsingSavedGeometry(planeGeometry: planeGeometry, near: origin)
         }
         
-        // If no placement found with saved geometry, fall back to existing methods
         if bestPlacement == nil || (bestPlacement?.confidence ?? 0) < placementConfidenceThreshold {
             if hasLiDAR {
                 if let meshAnchor = findNearestMeshAnchor(to: origin) {
@@ -404,9 +402,14 @@ class ARAnchorManager {
             }
         }
         
-        // Only place if we have a high-confidence placement
         if let placement = bestPlacement, placement.confidence >= placementConfidenceThreshold {
             var finalTransform = placement.transform
+            
+            // Preserve original height if the difference is within reasonable bounds
+            let heightDifference = abs(finalTransform.columns.3.y - anchorData.transform.columns.3.y)
+            if heightDifference <= 0.3 { // 30cm threshold
+                finalTransform.columns.3.y = anchorData.transform.columns.3.y
+            }
             
             // Preserve original orientation
             let originalRotation = simd_quatf(anchorData.transform)
@@ -415,12 +418,33 @@ class ARAnchorManager {
             finalTransform.columns.0 = SIMD4<Float>(rotMatrix.columns.0.x, rotMatrix.columns.0.y, rotMatrix.columns.0.z, 0)
             finalTransform.columns.1 = SIMD4<Float>(rotMatrix.columns.1.x, rotMatrix.columns.1.y, rotMatrix.columns.1.z, 0)
             finalTransform.columns.2 = SIMD4<Float>(rotMatrix.columns.2.x, rotMatrix.columns.2.y, rotMatrix.columns.2.z, 0)
-            finalTransform.columns.3 = placement.transform.columns.3
             
             createAndPlaceAnchorEntity(transform: finalTransform, anchorData: anchorData)
         } else {
             pendingAnchors.append(anchorData)
         }
+    }
+    
+    private func adjustTransformForPlacement(original: float4x4, new: float4x4, confidence: Float) -> float4x4 {
+        var adjusted = matrix_identity_float4x4
+        
+        // Extract and use original rotation
+        let originalRotation = simd_quatf(original)
+        let rotMatrix = rotationMatrix(from: originalRotation)
+        
+        // Apply rotation
+        adjusted.columns.0 = SIMD4<Float>(rotMatrix.columns.0.x, rotMatrix.columns.0.y, rotMatrix.columns.0.z, 0)
+        adjusted.columns.1 = SIMD4<Float>(rotMatrix.columns.1.x, rotMatrix.columns.1.y, rotMatrix.columns.1.z, 0)
+        adjusted.columns.2 = SIMD4<Float>(rotMatrix.columns.2.x, rotMatrix.columns.2.y, rotMatrix.columns.2.z, 0)
+        
+        // Use new position but maintain original height if within bounds
+        adjusted.columns.3 = new.columns.3
+        let heightDifference = abs(adjusted.columns.3.y - original.columns.3.y)
+        if heightDifference <= 0.3 { // 30cm threshold
+            adjusted.columns.3.y = original.columns.3.y
+        }
+        
+        return adjusted
     }
     
     private func findPlacementUsingSavedGeometry(planeGeometry: PlaneGeometry, near position: SIMD3<Float>) -> (transform: float4x4, confidence: Float)? {
@@ -506,24 +530,7 @@ class ARAnchorManager {
     }
     
     
-    private func adjustTransformForPlacement(original: float4x4, new: float4x4, confidence: Float) -> float4x4 {
-        var adjusted = matrix_identity_float4x4
-        
-        // Extract and use original rotation
-        let originalRotation = simd_quatf(original)
-        let rotMatrix = rotationMatrix(from: originalRotation)
-        
-        // Apply rotation
-        adjusted.columns.0 = SIMD4<Float>(rotMatrix.columns.0.x, rotMatrix.columns.0.y, rotMatrix.columns.0.z, 0)
-        adjusted.columns.1 = SIMD4<Float>(rotMatrix.columns.1.x, rotMatrix.columns.1.y, rotMatrix.columns.1.z, 0)
-        adjusted.columns.2 = SIMD4<Float>(rotMatrix.columns.2.x, rotMatrix.columns.2.y, rotMatrix.columns.2.z, 0)
-        
-        // Use new position
-        adjusted.columns.3 = new.columns.3
-        adjusted.columns.3.y += 0.001
-        
-        return adjusted
-    }
+    
     
     func updatePlaneAnchor(_ planeAnchor: ARPlaneAnchor) {
         //print("📐 Updating plane anchor: \(planeAnchor.identifier)")
