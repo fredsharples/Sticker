@@ -4,6 +4,21 @@ import CoreLocation
 
 class ARAnchorManager {
     // MARK: - Type Definitions
+    
+    private struct PlaneConfidence {
+        let area: Float
+        let orientation: Float
+        let stability: Int
+        let timeSeen: TimeInterval
+        
+        var score: Float {
+            let areaScore = min(area / 0.3, 1.0) // Reduced from 0.5
+            let stabilityScore = Float(min(stability, 10)) / 10.0
+            let timeScore = Float(min(timeSeen, 3.0) / 3.0)
+            return (areaScore * 0.4 + orientation * 0.3 + stabilityScore * 0.2 + timeScore * 0.1)
+        }
+    }
+    
     enum ScanningState {
         case initializing
         case scanning(progress: Float)
@@ -18,7 +33,7 @@ class ARAnchorManager {
         var minimumPlaneArea: Float {
             switch self {
             case .standard:
-                return 0.5 // square meters for standard scanning
+                return 0.3 // square meters for standard scanning
             case .lidar:
                 return 0.2 // can be more precise with LiDAR
             }
@@ -27,7 +42,7 @@ class ARAnchorManager {
         var requiredPlaneCoverage: Float {
             switch self {
             case .standard:
-                return 1.0
+                return 0.6
             case .lidar:
                 return 0.5 // Need less coverage with LiDAR's accuracy
             }
@@ -36,7 +51,7 @@ class ARAnchorManager {
         var minimumPlanesForMapping: Int {
             switch self {
             case .standard:
-                return 3
+                return 2
             case .lidar:
                 return 1 // LiDAR can work with fewer planes
             }
@@ -66,6 +81,9 @@ class ARAnchorManager {
     private var isTrackingReady: Bool = false
     private var hasLiDAR: Bool = false
     private var scanningStrategy: ScanningStrategy = .standard
+    
+    private var planeConfidenceMap: [ARPlaneAnchor: PlaneConfidence] = [:]
+    private var lastPlaneUpdate: [ARPlaneAnchor: Date] = [:]
     
     private let viewingAngleThreshold: Float = .pi / 3  // 60 degrees
     private let placementConfidenceThreshold: Float = 0.7
@@ -538,11 +556,38 @@ class ARAnchorManager {
     
     
     func updatePlaneAnchor(_ planeAnchor: ARPlaneAnchor) {
-        //print("📐 Updating plane anchor: \(planeAnchor.identifier)")
-        detectedPlanes[planeAnchor] = planeAnchor.planeExtent.width * planeAnchor.planeExtent.height
+        let now = Date()
+        let area = planeAnchor.planeExtent.width * planeAnchor.planeExtent.height
+        let normal = SIMD3<Float>(planeAnchor.transform.columns.1.x,
+                                 planeAnchor.transform.columns.1.y,
+                                 planeAnchor.transform.columns.1.z)
+        let orientation = abs(simd_dot(normal, SIMD3<Float>(0, 1, 0)))
+        
+        if let lastUpdate = lastPlaneUpdate[planeAnchor] {
+            let existing = planeConfidenceMap[planeAnchor]
+            let stability = (existing?.stability ?? 0) + 1
+            let timeSeen = now.timeIntervalSince(lastUpdate)
+            
+            planeConfidenceMap[planeAnchor] = PlaneConfidence(
+                area: area,
+                orientation: orientation,
+                stability: stability,
+                timeSeen: timeSeen
+            )
+        } else {
+            planeConfidenceMap[planeAnchor] = PlaneConfidence(
+                area: area,
+                orientation: orientation,
+                stability: 1,
+                timeSeen: 0
+            )
+        }
+        
+        lastPlaneUpdate[planeAnchor] = now
+        detectedPlanes[planeAnchor] = area
         evaluateEnvironmentMapping()
     }
-    
+ 
     func removePlaneAnchor(_ planeAnchor: ARPlaneAnchor) {
         print("🗑️ Removing plane anchor: \(planeAnchor.identifier)")
         detectedPlanes.removeValue(forKey: planeAnchor)
@@ -808,3 +853,4 @@ enum ScanningStrategy {
     case standard
     case lidar
 }
+
