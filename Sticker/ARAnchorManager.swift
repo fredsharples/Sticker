@@ -397,55 +397,24 @@ class ARAnchorManager {
             pendingAnchors.append(anchorData)
             return
         }
-        
+
         let origin = SIMD3<Float>(anchorData.transform.columns.3.x,
                                   anchorData.transform.columns.3.y,
                                   anchorData.transform.columns.3.z)
-        
-        guard isInFieldOfView(origin) else {
-            return
-        }
-        
-        var bestPlacement: (transform: float4x4, confidence: Float)?
-        
-        // Try placement methods in order of precision
-        if let planeGeometry = anchorData.planeGeometry {
-            bestPlacement = findPlacementUsingSavedGeometry(planeGeometry: planeGeometry, near: origin)
-        }
-        
-        if bestPlacement == nil || (bestPlacement?.confidence ?? 0) < placementConfidenceThreshold {
-            if hasLiDAR {
-                if let meshAnchor = findNearestMeshAnchor(to: origin) {
-                    bestPlacement = findOptimalPlacementOnMesh(meshAnchor: meshAnchor, near: origin)
-                }
-            }
-            
-            if bestPlacement == nil || (bestPlacement?.confidence ?? 0) < placementConfidenceThreshold {
-                bestPlacement = findPlacementUsingRaycasts(near: origin)
+
+        if let placement = findPlacementUsingRaycasts(near: origin) {
+            let validationScore = validatePlacement(transform: placement.transform, near: origin)
+            let finalConfidence = placement.confidence * validationScore
+
+            if finalConfidence >= 0.7 {
+                var finalTransform = placement.transform
+                preserveOriginalOrientation(&finalTransform, from: anchorData.transform)
+                createAndPlaceAnchorEntity(transform: finalTransform, anchorData: anchorData)
+                return
             }
         }
         
-        if let placement = bestPlacement, placement.confidence >= placementConfidenceThreshold {
-            var finalTransform = placement.transform
-            
-            // Preserve original height if the difference is within reasonable bounds
-            let heightDifference = abs(finalTransform.columns.3.y - anchorData.transform.columns.3.y)
-            if heightDifference <= 0.3 { // 30cm threshold
-                finalTransform.columns.3.y = anchorData.transform.columns.3.y
-            }
-            
-            // Preserve original orientation
-            let originalRotation = simd_quatf(anchorData.transform)
-            let rotMatrix = rotationMatrix(from: originalRotation)
-            
-            finalTransform.columns.0 = SIMD4<Float>(rotMatrix.columns.0.x, rotMatrix.columns.0.y, rotMatrix.columns.0.z, 0)
-            finalTransform.columns.1 = SIMD4<Float>(rotMatrix.columns.1.x, rotMatrix.columns.1.y, rotMatrix.columns.1.z, 0)
-            finalTransform.columns.2 = SIMD4<Float>(rotMatrix.columns.2.x, rotMatrix.columns.2.y, rotMatrix.columns.2.z, 0)
-            
-            createAndPlaceAnchorEntity(transform: finalTransform, anchorData: anchorData)
-        } else {
-            pendingAnchors.append(anchorData)
-        }
+        pendingAnchors.append(anchorData)
     }
     
     private func adjustTransformForPlacement(original: float4x4, new: float4x4, confidence: Float) -> float4x4 {
@@ -505,6 +474,14 @@ class ARAnchorManager {
         
         return nil
     }
+    private func preserveOriginalOrientation(_ transform: inout float4x4, from original: float4x4) {
+        let originalRotation = simd_quatf(original)
+        let rotMatrix = rotationMatrix(from: originalRotation)
+        
+        transform.columns.0 = SIMD4<Float>(rotMatrix.columns.0.x, rotMatrix.columns.0.y, rotMatrix.columns.0.z, 0)
+        transform.columns.1 = SIMD4<Float>(rotMatrix.columns.1.x, rotMatrix.columns.1.y, rotMatrix.columns.1.z, 0)
+        transform.columns.2 = SIMD4<Float>(rotMatrix.columns.2.x, rotMatrix.columns.2.y, rotMatrix.columns.2.z, 0)
+    }
     
     private func rotationMatrix(from quaternion: simd_quatf) -> matrix_float4x4 {
         // Extract components from quaternion.vector (which is a SIMD4<Float>)
@@ -553,7 +530,70 @@ class ARAnchorManager {
     }
     
     
+    private func findPlacementUsingRaycasts(near position: SIMD3<Float>) -> (transform: float4x4, confidence: Float)? {
+        let searchDirections: [(direction: SIMD3<Float>, weight: Float)] = [
+            (SIMD3(0, -1, 0), 1.0),           // Straight down
+            (SIMD3(0, -0.9063, 0.4226), 0.8), // 25° forward
+            (SIMD3(0, -0.9063, -0.4226), 0.8),// 25° back
+            (SIMD3(0.4226, -0.9063, 0), 0.8), // 25° right
+            (SIMD3(-0.4226, -0.9063, 0), 0.8),// 25° left
+            (SIMD3(0, -0.7071, 0.7071), 0.6), // 45° forward
+            (SIMD3(0, -0.7071, -0.7071), 0.6),// 45° back
+            (SIMD3(0.7071, -0.7071, 0), 0.6), // 45° right
+            (SIMD3(-0.7071, -0.7071, 0), 0.6) // 45° left
+        ]
+
+        var bestTransform: float4x4?
+        var bestConfidence: Float = 0.0
+
+        for (direction, weight) in searchDirections {
+            let starts = [
+                position + SIMD3<Float>(0, 0.3, 0),     // Above
+                position,                                // Center
+                position - SIMD3<Float>(0, 0.3, 0)      // Below
+            ]
+
+            for start in starts {
+                let query = ARRaycastQuery(
+                    origin: start,
+                    direction: direction,
+                    allowing: .estimatedPlane,
+                    alignment: .any
+                )
+
+                if let result = arView?.session.raycast(query).first {
+                    let distance = simd_distance(result.worldTransform.position, position)
+                    let distanceConfidence = 1.0 - (distance / Constants.maxDistance)
+                    let confidence = distanceConfidence * weight
+
+                    if confidence > bestConfidence {
+                        bestConfidence = confidence
+                        bestTransform = result.worldTransform
+                    }
+                }
+            }
+        }
+
+        return bestTransform.map { ($0, bestConfidence) }
+    }
     
+    private func validatePlacement(transform: float4x4, near targetPosition: SIMD3<Float>) -> Float {
+        let position = transform.position
+        let distance = simd_distance(position, targetPosition)
+        
+        // Check if too far from target
+        if distance > Constants.maxDistance { return 0.0 }
+        
+        // Check height difference
+        let heightDiff = abs(position.y - targetPosition.y)
+        if heightDiff > 0.5 { return 0.0 }
+        
+        // Calculate base confidence
+        let distanceConfidence = 1.0 - (distance / Constants.maxDistance)
+        let heightConfidence = 1.0 - (heightDiff / 0.5)
+        
+        return (distanceConfidence * 0.7 + heightConfidence * 0.3)
+    }
     
     func updatePlaneAnchor(_ planeAnchor: ARPlaneAnchor) {
         let now = Date()
@@ -660,39 +700,7 @@ class ARAnchorManager {
         return (meshAnchor.transform * transform, confidence)
     }
     
-    private func findPlacementUsingRaycasts(near position: SIMD3<Float>) -> (transform: float4x4, confidence: Float)? {
-        let searchDirections: [SIMD3<Float>] = [
-            SIMD3(0, -1, 0),
-            SIMD3(0, -0.7071, 0.7071),
-            SIMD3(0, -0.7071, -0.7071),
-            SIMD3(0.7071, -0.7071, 0),
-            SIMD3(-0.7071, -0.7071, 0)
-        ]
-        
-        var bestResult: ARRaycastResult?
-        var bestConfidence: Float = 0.0
-        
-        for direction in searchDirections {
-            let raycastQuery = ARRaycastQuery(
-                origin: position + SIMD3<Float>(0, 0.3, 0),
-                direction: direction,
-                allowing: .estimatedPlane,
-                alignment: .any
-            )
-            
-            if let result = arView?.session.raycast(raycastQuery).first {
-                let distance = simd_distance(result.worldTransform.position, position)
-                let confidence = 1.0 - (distance / Constants.maxDistance)
-                
-                if confidence > bestConfidence {
-                    bestConfidence = confidence
-                    bestResult = result
-                }
-            }
-        }
-        
-        return bestResult.map { ($0.worldTransform, bestConfidence) }
-    }
+    
     
     
     
