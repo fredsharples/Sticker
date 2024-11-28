@@ -20,13 +20,14 @@ class ARSessionManager: NSObject, ARSessionDelegate {
     private weak var arView: ARView?
     private weak var anchorManager: ARAnchorManager?
     private var subscriptions = Set<AnyCancellable>()
+    private var useLiDAR: Bool = true
     
     // MARK: - Initialization
     init(arView: ARView, anchorManager: ARAnchorManager) {
         self.arView = arView
         self.anchorManager = anchorManager
         super.init()
-        
+        //setLiDAREnabled(false)
         setupSession()
         setupNotifications()
     }
@@ -37,26 +38,31 @@ class ARSessionManager: NSObject, ARSessionDelegate {
         configureARSession()
     }
     
-    private func configureARSession() {
-        guard let arView = arView else { return }
-        
-        let configuration = ARWorldTrackingConfiguration()
-        configuration.planeDetection = [.horizontal, .vertical]
-        
-        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-            print("📱 Device supports LiDAR")
-            configuration.sceneReconstruction = .mesh
-            
-            if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
-                configuration.sceneReconstruction = .meshWithClassification
-            }
-        } else {
-            print("📱 Device does not support LiDAR")
+    func setLiDAREnabled(_ enabled: Bool) {
+            useLiDAR = enabled
+            configureARSession() // Reconfigure with new setting
         }
-        
-        print("🚀 Starting AR session...")
-        arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-    }
+    
+    private func configureARSession() {
+            guard let arView = arView else { return }
+            
+            let configuration = ARWorldTrackingConfiguration()
+            configuration.planeDetection = [.horizontal, .vertical]
+            
+            if useLiDAR && ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+                print("📱 Device supports and is using LiDAR")
+                configuration.sceneReconstruction = .mesh
+                
+                if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
+                    configuration.sceneReconstruction = .meshWithClassification
+                }
+            } else {
+                print("📱 LiDAR disabled or not supported")
+            }
+            
+            print("🚀 Starting AR session...")
+            arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+        }
     
     // MARK: - Lifecycle Management
     private func setupNotifications() {

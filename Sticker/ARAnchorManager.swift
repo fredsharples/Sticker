@@ -11,7 +11,7 @@ class ARAnchorManager {
         case insufficientFeatures
     }
     
-    private enum ScanningStrategy {
+    enum ScanningStrategy {
         case standard
         case lidar
         
@@ -101,6 +101,11 @@ class ARAnchorManager {
         if isReady {
             processPendingAnchors()
         }
+    }
+    
+    func setScanningStrategy(_ strategy: ScanningStrategy) {
+        self.scanningStrategy = strategy
+        evaluateEnvironmentMapping()
     }
     
     func addPlaneAnchor() {
@@ -315,7 +320,7 @@ class ARAnchorManager {
         if planeCount >= strategy.minimumPlanesForMapping &&
             (totalArea >= strategy.requiredPlaneCoverage || hasLiDAR) {
             isEnvironmentMapped = true
-            print("✅ Environment mapping complete")
+            //print("✅ Environment mapping complete")
             onScanningStateChanged?(.ready)
         } else {
             let progress = hasLiDAR ?
@@ -799,4 +804,7 @@ private extension SIMD4<Float> {
         return SIMD3<Float>(x, y, z)
     }
 }
-
+enum ScanningStrategy {
+    case standard
+    case lidar
+}

@@ -58,12 +58,17 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         arView = ARView(frame: .zero)
         locationManager = ARLocationManager()
         super.init()
+        //debug
+        
+        //
         
         setupBindings()
         setupARView()
         setupMotionServices()
         setupLighting()
         initializeFirebase()
+        setLiDAREnabled(false);
+        
     }
     
     // MARK: - Setup Methods
@@ -159,6 +164,11 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
         
     }
+    func setLiDAREnabled(_ enabled: Bool) {
+        sessionManager?.setLiDAREnabled(enabled)
+        anchorManager?.setScanningStrategy(enabled ? .lidar : .standard)
+    }
+    
     // Update state when needed
     private func updateGestureManagerState() {
         gestureManager?.updateState(
