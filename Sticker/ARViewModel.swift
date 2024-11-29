@@ -57,14 +57,10 @@ class ARViewModel: NSObject, ObservableObject {
         arView = ARView(frame: .zero)
         locationManager = ARLocationManager()
         super.init()
-        //debug
-        
-        //
-        
         setupBindings()
         setupARView()
         initializeFirebase()
-        setLiDAREnabled(false);
+        setLiDAREnabled(true);
         
     }
     
@@ -132,25 +128,7 @@ class ARViewModel: NSObject, ObservableObject {
                     imageName: imageName
                 )
             }
-        
-        
-        let configuration = ARWorldTrackingConfiguration()
-        configuration.planeDetection = [.horizontal, .vertical]
-        
-        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-            print("📱 Device supports LiDAR")
-            configuration.sceneReconstruction = .mesh
-            
-            if ARWorldTrackingConfiguration.supportsSceneReconstruction(.meshWithClassification) {
-                configuration.sceneReconstruction = .meshWithClassification
-            }
-        } else {
-            print("📱 Device does not support LiDAR")
-        }
-        
-        print("🚀 Starting AR session...")
-        arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-        
+
         gestureManager = ARGestureManager(arView: arView)
         gestureManager?.onAnchorPlacementNeeded = { [weak self] transform, location, imageName in
             self?.anchorManager?.placeNewSticker(

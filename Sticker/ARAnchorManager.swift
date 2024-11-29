@@ -706,70 +706,13 @@ class ARAnchorManager {
     }
     
     
-    private func findNearestMeshAnchor(to position: SIMD3<Float>) -> ARMeshAnchor? {
-        guard let meshAnchors = arView?.session.currentFrame?.anchors.compactMap({ $0 as? ARMeshAnchor }) else {
-            return nil
-        }
-        
-        return meshAnchors.min(by: { anchor1, anchor2 in
-            let distance1 = simd_distance(anchor1.transform.position, position)
-            let distance2 = simd_distance(anchor2.transform.position, position)
-            return distance1 < distance2
-        })
-    }
-    
     /// Finds the optimal placement for an anchor using LiDAR mesh data
     /// - Parameters:
     ///   - meshAnchor: The AR mesh anchor to analyze
     ///   - position: The target position for placement
     /// - Returns: Tuple containing the optimal transform and confidence value, or nil if no suitable placement found
     
-    private func findOptimalPlacementOnMesh(meshAnchor: ARMeshAnchor, near position: SIMD3<Float>) -> (transform: float4x4, confidence: Float)? {
-        guard let geometry = meshAnchor.geometry as? ARMeshGeometry else { return nil }
-        
-        let meshLocalPosition = meshAnchor.transform.inverse * float4(position.x, position.y, position.z, 1)
-        
-        var nearestVertex: SIMD3<Float>?
-        var nearestNormal: SIMD3<Float>?
-        var minDistance: Float = .infinity
-        
-        // Get the raw vertex buffer
-        let vertices = geometry.vertices.buffer.contents()
-        let vertexStride = geometry.vertices.stride
-        let vertexCount = geometry.vertices.count
-        
-        // Get the raw normal buffer
-        let normals = geometry.normals.buffer.contents()
-        let normalStride = geometry.normals.stride
-        
-        // Iterate through vertices
-        for index in 0..<vertexCount {
-            // Get vertex at current index
-            let vertexPointer = vertices.advanced(by: index * vertexStride)
-            let vertex = vertexPointer.assumingMemoryBound(to: SIMD3<Float>.self).pointee
-            
-            let distance = simd_distance(vertex, meshLocalPosition.xyz)
-            
-            if distance < minDistance {
-                minDistance = distance
-                nearestVertex = vertex
-                
-                // Get corresponding normal
-                let normalPointer = normals.advanced(by: index * normalStride)
-                nearestNormal = normalPointer.assumingMemoryBound(to: SIMD3<Float>.self).pointee
-            }
-        }
-        
-        guard let vertex = nearestVertex, let normal = nearestNormal else { return nil }
-        
-        var transform = matrix_identity_float4x4
-        transform.columns.3 = float4(vertex.x, vertex.y, vertex.z, 1)
-        
-        // Calculate confidence (0-1) based on distance
-        let confidence = 1.0 - (minDistance / 0.1)
-        
-        return (meshAnchor.transform * transform, confidence)
-    }
+    
     
     
     
