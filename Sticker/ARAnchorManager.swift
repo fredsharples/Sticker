@@ -18,7 +18,12 @@ class ARAnchorManager {
             return (areaScore * 0.4 + orientation * 0.3 + stabilityScore * 0.2 + timeScore * 0.1)
         }
     }
-    
+    private struct AnchorPersistenceData {
+        let anchorData: AnchorData
+        let lastAttempt: Date
+        var attempts: Int
+        var bestConfidence: Float
+    }
     enum ScanningState {
         case initializing
         case scanning(progress: Float)
@@ -83,6 +88,12 @@ class ARAnchorManager {
     private var scanningStrategy: ScanningStrategy = .standard
     
     private var planeConfidenceMap: [ARPlaneAnchor: PlaneConfidence] = [:]
+    private var persistenceQueue: [AnchorPersistenceData] = []
+    private let maxPlacementAttempts = 5
+    private let retryInterval: TimeInterval = 2.0
+    private let persistenceScheduler = DispatchQueue(label: "com.ar.persistence", qos: .utility)
+    private var persistenceTimer: DispatchSourceTimer?
+    
     private var lastPlaneUpdate: [ARPlaneAnchor: Date] = [:]
     
     private let viewingAngleThreshold: Float = .pi / 3  // 60 degrees
@@ -130,6 +141,65 @@ class ARAnchorManager {
         evaluateEnvironmentMapping()
     }
     
+    private func queueAnchorForPersistence(_ anchorData: AnchorData) {
+        let persistenceData = AnchorPersistenceData(
+            anchorData: anchorData,
+            lastAttempt: Date(),
+            attempts: 0,
+            bestConfidence: 0.0
+        )
+        persistenceQueue.append(persistenceData)
+        startPersistenceTimer()
+    }
+    
+    private func startPersistenceTimer() {
+        persistenceTimer?.cancel()
+        
+        let timer = DispatchSource.makeTimerSource(queue: persistenceScheduler)
+        timer.schedule(deadline: .now() + retryInterval, repeating: retryInterval)
+        timer.setEventHandler(handler: { [weak self] in
+            self?.processPersistenceQueue()
+        })
+        timer.resume()
+        
+        persistenceTimer = timer
+    }
+
+    private func processPersistenceQueue() {
+        guard !persistenceQueue.isEmpty else {
+            persistenceTimer?.cancel()
+            persistenceTimer = nil
+            return
+        }
+        
+        let now = Date()
+        let itemsToProcess = persistenceQueue.prefix(3) // Process max 3 items per interval
+        
+        for item in itemsToProcess {
+            guard now.timeIntervalSince(item.lastAttempt) >= retryInterval else { continue }
+            attemptPlacement(item)
+        }
+    }
+    
+    private func attemptPlacement(_ item: AnchorPersistenceData) {
+        let origin = SIMD3<Float>(item.anchorData.transform.columns.3.x,
+                                 item.anchorData.transform.columns.3.y,
+                                 item.anchorData.transform.columns.3.z)
+        
+        if let placement = findPlacementUsingRaycasts(near: origin) {
+            let confidence = validatePlacement(transform: placement.transform, near: origin)
+            if confidence > item.bestConfidence && confidence >= 0.7 {
+                DispatchQueue.main.async { [weak self] in
+                    var finalTransform = placement.transform
+                    self?.preserveOriginalOrientation(&finalTransform, from: item.anchorData.transform)
+                    self?.createAndPlaceAnchorEntity(transform: finalTransform, anchorData: item.anchorData)
+                }
+                persistenceQueue.removeAll { $0.anchorData.id == item.anchorData.id }
+            }
+        }
+    }
+    
+    
     private func isInFieldOfView(_ position: SIMD3<Float>) -> Bool {
         guard let arView = arView,
               let camera = arView.session.currentFrame?.camera else {
@@ -158,6 +228,8 @@ class ARAnchorManager {
         
         return angle <= viewingAngleThreshold
     }
+    
+    
     
     private func findMatchingPlane(for transform: float4x4) -> ARPlaneAnchor? {
         guard let frame = arView?.session.currentFrame else { return nil }
@@ -393,28 +465,27 @@ class ARAnchorManager {
     /// Places an anchor from saved data, handling both immediate placement and queueing
     /// - Parameter anchorData: The saved anchor data to place
     private func placeSavedAnchor(_ anchorData: AnchorData) {
-        guard isEnvironmentMapped else {
-            pendingAnchors.append(anchorData)
+        if !isEnvironmentMapped {
+            queueAnchorForPersistence(anchorData)
             return
         }
-
+        
         let origin = SIMD3<Float>(anchorData.transform.columns.3.x,
                                   anchorData.transform.columns.3.y,
                                   anchorData.transform.columns.3.z)
-
+        
         if let placement = findPlacementUsingRaycasts(near: origin) {
-            let validationScore = validatePlacement(transform: placement.transform, near: origin)
-            let finalConfidence = placement.confidence * validationScore
-
-            if finalConfidence >= 0.7 {
+            let confidence = validatePlacement(transform: placement.transform, near: origin)
+            if confidence >= 0.7 {
                 var finalTransform = placement.transform
                 preserveOriginalOrientation(&finalTransform, from: anchorData.transform)
                 createAndPlaceAnchorEntity(transform: finalTransform, anchorData: anchorData)
-                return
+            } else {
+                queueAnchorForPersistence(anchorData)
             }
+        } else {
+            queueAnchorForPersistence(anchorData)
         }
-        
-        pendingAnchors.append(anchorData)
     }
     
     private func adjustTransformForPlacement(original: float4x4, new: float4x4, confidence: Float) -> float4x4 {
