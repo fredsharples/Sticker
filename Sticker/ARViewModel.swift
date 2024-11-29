@@ -8,7 +8,7 @@ import Combine
 
 
 // MARK: - ARViewModel
-class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
+class ARViewModel: NSObject, ObservableObject {
     // MARK: - Published Properties
     @Published private(set) var state: ARStickerViewState = .initializing  // Updated type
     @Published private(set) var error: ARStickerError?
@@ -31,11 +31,10 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     private let firebaseManager = FirebaseManager()
     
-    private let motionManager = CMMotionManager()
+
     private var cancellables = Set<AnyCancellable>()
     
-    private var cameraLight: PointLight?
-    private var cameraAnchor: AnchorEntity?
+   
     private var anchorEntities: [AnchorEntity] = []
     private var selectedEntity: ModelEntity?
     private var imageName: String = ""
@@ -64,8 +63,6 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         
         setupBindings()
         setupARView()
-        setupMotionServices()
-        setupLighting()
         initializeFirebase()
         setLiDAREnabled(false);
         
@@ -195,34 +192,9 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             .store(in: &cancellables)
     }
     
-    private func setupMotionServices() {
-        if motionManager.isDeviceMotionAvailable {
-            motionManager.deviceMotionUpdateInterval = 0.1
-            motionManager.startDeviceMotionUpdates(to: .main) { [weak self] (motion, error) in
-                guard let motion = motion, error == nil else { return }
-                self?.motionData = motion
-            }
-        }
-    }
     
-    private func setupLighting() {
-        // Remove existing camera anchor if it exists
-        if let existingAnchor = cameraAnchor {
-            arView.scene.removeAnchor(existingAnchor)
-        }
-        
-        cameraAnchor = AnchorEntity(.camera)
-        cameraLight = PointLight()
-        
-        cameraLight?.light.color = .white
-        cameraLight?.light.intensity = 30000
-        cameraLight?.light.attenuationRadius = 50.0
-        
-        if let light = cameraLight, let anchor = cameraAnchor {
-            anchor.addChild(light)
-            arView.scene.addAnchor(anchor)
-        }
-    }
+    
+    
     
     
     private func initializeFirebase() {
@@ -267,98 +239,7 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     
     // MARK: - Data Management
-    private func saveAnchor(anchorEntity: AnchorEntity, modelEntity: ModelEntity? = nil) {
-        guard let currentLocation = currentLocation else {
-            state = .error(.locationUnavailable)
-            return
-        }
-        
-        let matrix = anchorEntity.transform.matrix
-        
-        // Break up the transform array into rows
-        let row1 = [
-            Double(matrix.columns.0.x),
-            Double(matrix.columns.0.y),
-            Double(matrix.columns.0.z),
-            Double(matrix.columns.0.w)
-        ]
-        
-        let row2 = [
-            Double(matrix.columns.1.x),
-            Double(matrix.columns.1.y),
-            Double(matrix.columns.1.z),
-            Double(matrix.columns.1.w)
-        ]
-        
-        let row3 = [
-            Double(matrix.columns.2.x),
-            Double(matrix.columns.2.y),
-            Double(matrix.columns.2.z),
-            Double(matrix.columns.2.w)
-        ]
-        
-        let row4 = [
-            Double(matrix.columns.3.x),
-            Double(matrix.columns.3.y),
-            Double(matrix.columns.3.z),
-            Double(matrix.columns.3.w)
-        ]
-        
-        // Combine the rows
-        let transformArray = row1 + row2 + row3 + row4
-        
-        var anchorData: [String: Any] = [
-            "id": anchorEntity.id.description,
-            "transform": transformArray,
-            "name": imageName,
-            "latitude": currentLocation.coordinate.latitude,
-            "longitude": currentLocation.coordinate.longitude,
-            "altitude": currentLocation.altitude,
-            "horizontalAccuracy": currentLocation.horizontalAccuracy,
-            "verticalAccuracy": currentLocation.verticalAccuracy,
-            "timestamp": currentLocation.timestamp.timeIntervalSince1970
-        ]
-        
-        // Rest of the method remains the same...
-        if let modelEntity = modelEntity {
-            anchorData["scale"] = [
-                Double(modelEntity.scale.x),
-                Double(modelEntity.scale.y),
-                Double(modelEntity.scale.z)
-            ]
-            anchorData["orientation"] = [
-                Double(modelEntity.orientation.vector.x),
-                Double(modelEntity.orientation.vector.y),
-                Double(modelEntity.orientation.vector.z),
-                Double(modelEntity.orientation.vector.w)
-            ]
-        }
-        
-        if let heading = heading {
-            anchorData["heading"] = heading.trueHeading
-            anchorData["headingAccuracy"] = heading.headingAccuracy
-        }
-        
-        if let motion = motionData {
-            anchorData["attitude"] = [
-                "roll": motion.attitude.roll,
-                "pitch": motion.attitude.pitch,
-                "yaw": motion.attitude.yaw
-            ]
-            anchorData["gravity"] = [
-                "x": motion.gravity.x,
-                "y": motion.gravity.y,
-                "z": motion.gravity.z
-            ]
-            anchorData["magneticField"] = [
-                "x": motion.magneticField.field.x,
-                "y": motion.magneticField.field.y,
-                "z": motion.magneticField.field.z,
-                "accuracy": motion.magneticField.accuracy.rawValue
-            ]
-        }
-        firebaseManager.saveAnchor(anchorData: anchorData)
-    }
+
     
     
     // MARK: - Public Methods
@@ -403,24 +284,6 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         print("Selected sticker number: \(selectedImageIndex)")
     }
     
-    // MARK: - CLLocationManagerDelegate
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last,
-              location.horizontalAccuracy < 20 else { return }
-        
-        currentLocation = location
-    }
-    
-    
-    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
-        heading = newHeading
-    }
-    
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("Location manager failed with error: \(error)")
-        state = .error(.locationUnavailable)
-    }
-    
     // MARK: - ARSessionDelegate
     func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
         for anchor in anchors {
@@ -448,24 +311,7 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             }
         }
     }
-    
-    
-    private func resetTracking() {
-        let configuration = ARWorldTrackingConfiguration()
-        configuration.planeDetection = [.horizontal, .vertical]
-        configuration.environmentTexturing = .automatic
-        configuration.isLightEstimationEnabled = true
-        
-        // Don't remove existing anchors, just reset tracking
-        arView.session.run(configuration, options: [.resetTracking])
-        
-        // If light is missing, recreate it
-        if !arView.scene.anchors.contains(where: { $0 == cameraAnchor }) {
-            setupLighting()
-        }
-        
-        loadSavedAnchors()
-    }
+
     
     private func updateSelectedEntity(_ entity: ModelEntity?) {
         selectedEntity = entity
@@ -474,9 +320,7 @@ class ARViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     // MARK: - Cleanup
     deinit {
-        motionManager.stopDeviceMotionUpdates()
         gestureManager?.cleanup()
-        motionManager.stopDeviceMotionUpdates()
         locationManager.cleanup()
     }
 }
