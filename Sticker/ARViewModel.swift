@@ -19,22 +19,14 @@ class ARViewModel: NSObject, ObservableObject {
     @Published var selectedImageIndex: Int = 1
     @Published private(set) var isPlacementEnabled: Bool = false
     @Published private(set) var scanningState: ARAnchorManager.ScanningState = .initializing
-    @Published private(set) var isEnvironmentReady: Bool = false
     
     // MARK: - Private Properties
     private var gestureManager: ARGestureManager?
     private var anchorManager: ARAnchorManager?
     private let locationManager: ARLocationManager
     private var sessionManager: ARSessionManager?
-    
-    
-    
     private let firebaseManager = FirebaseManager()
-    
-
     private var cancellables = Set<AnyCancellable>()
-    
-   
     private var anchorEntities: [AnchorEntity] = []
     private var selectedEntity: ModelEntity?
     private var imageName: String = ""
@@ -72,9 +64,9 @@ class ARViewModel: NSObject, ObservableObject {
                DispatchQueue.main.async {
                    self?.scanningState = state
                    if case .ready = state {
-                       self?.isEnvironmentReady = true
+                       self?.isPlacementEnabled = true
                    } else {
-                       self?.isEnvironmentReady = false
+                       self?.isPlacementEnabled = false
                    }
                }
            }
@@ -88,7 +80,7 @@ class ARViewModel: NSObject, ObservableObject {
                     .receive(on: DispatchQueue.main)
                     .sink { [weak self] isReady in
                         if !isReady {
-                            self?.isEnvironmentReady = false
+                            self?.isPlacementEnabled = false
                         }
                     }
                     .store(in: &cancellables)
@@ -106,7 +98,7 @@ class ARViewModel: NSObject, ObservableObject {
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] isReady in
                     if !isReady {
-                        self?.isEnvironmentReady = false
+                        self?.isPlacementEnabled = false
                     }
                 }
                 .store(in: &cancellables)
@@ -222,7 +214,7 @@ class ARViewModel: NSObject, ObservableObject {
     
     // MARK: - Public Methods
     func loadSavedAnchors() {
-        guard isEnvironmentReady else {
+        guard isPlacementEnabled else {
             print("Environment not ready for loading anchors")
             return
         }

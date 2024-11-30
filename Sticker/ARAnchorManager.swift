@@ -851,15 +851,12 @@ class ARAnchorManager {
     }
 }
 
+enum ScanningStrategy {
+    case standard
+    case lidar
+}
+
 // MARK: - SIMD Extensions
-
-
-//private extension float4 {
-//    var xyz: SIMD3<Float> {
-//        return SIMD3<Float>(x, y, z)
-//    }
-//}
-
 private extension matrix_float4x4 {
     var position: SIMD3<Float> {
         return SIMD3<Float>(columns.3.x, columns.3.y, columns.3.z)
@@ -871,8 +868,5 @@ private extension SIMD4<Float> {
         return SIMD3<Float>(x, y, z)
     }
 }
-enum ScanningStrategy {
-    case standard
-    case lidar
-}
+
 
