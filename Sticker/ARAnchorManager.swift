@@ -705,19 +705,6 @@ class ARAnchorManager {
         evaluateEnvironmentMapping()
     }
     
-    
-    /// Finds the optimal placement for an anchor using LiDAR mesh data
-    /// - Parameters:
-    ///   - meshAnchor: The AR mesh anchor to analyze
-    ///   - position: The target position for placement
-    /// - Returns: Tuple containing the optimal transform and confidence value, or nil if no suitable placement found
-    
-    
-    
-    
-    
-    
-    
     private func createAndPlaceAnchorEntity(transform: float4x4, anchorData: AnchorData) {
         guard !loadedAnchorIds.contains(anchorData.id) else {
             print("⚠️ Anchor \(anchorData.id) already loaded, skipping")
