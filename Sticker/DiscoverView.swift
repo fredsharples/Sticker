@@ -96,7 +96,7 @@ struct DiscoverView: View {
                             latitude: group.coordinate.latitude,
                             longitude: group.coordinate.longitude
                         )
-                        return location.distance(from: groupLocation) <= 50 // 50-meter radius
+                        return location.distance(from: groupLocation) <= ARConstants.discoveryRange
                     }) {
                         // Update existing group
                         groups[index].count += 1

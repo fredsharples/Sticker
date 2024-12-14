@@ -72,7 +72,7 @@ class ARAnchorManager {
         static let blendingValue: Float = 0.9
         static let clearcoatValue: Float = 0.9
         static let clearcoatRoughnessValue: Float = 0.9
-        static let discoveryRange: Double = 20.0 // meters
+        //static let discoveryRange: Double = 5.0 // meters
     }
     
     // MARK: - Properties
@@ -438,8 +438,8 @@ class ARAnchorManager {
                 timestamp: Date(timeIntervalSince1970: anchorData.timestamp)
             )
             let distance = location.distance(from: anchorLocation)
-            print("📏 Anchor distance: \(distance)m, within range: \(distance <= Constants.discoveryRange)")
-            return distance <= Constants.discoveryRange
+           // print("📏 Anchor distance: \(distance)m, within range: \(distance <= Constants.discoveryRange)")
+            return distance <= ARConstants.discoveryRange
         }
     }
     

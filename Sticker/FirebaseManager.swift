@@ -61,7 +61,7 @@ class FirebaseManager {
                 let data = doc.data()
                 return AnchorData(dictionary: data)
             }
-            print("Loaded these anchors: \(anchors.map(\.name).joined(separator: ", "))")
+            //print("Loaded these anchors: \(anchors.map(\.name).joined(separator: ", "))")
             completion(.success(anchors))
         }
     }

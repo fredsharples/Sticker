@@ -9,12 +9,21 @@ import SwiftUI
 
 @main
 struct StickerApp: App {
+    @State private var isLoading = true
+    
     init() {
-            FirebaseApp.configure()
-        }
+        FirebaseApp.configure()
+    }
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ZStack {
+//                if isLoading {
+//                    SplashView(isLoading: $isLoading)
+//                } else {
+                    ContentView()
+                //}
+            }
         }
     }
 }
