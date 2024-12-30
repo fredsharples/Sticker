@@ -67,20 +67,20 @@ struct ARPlacementView: View {
                     .background(Color.orange)
                     .cornerRadius(10)
                 }
-                
-                Button(action: arViewModel.deleteAllFromFirebase) {
-                    VStack {
-                        Image(systemName: "trash")
-                            .font(.system(size: 18))
-                        Text("Delete")
-                            .font(.caption)
-                    }
-                    .foregroundColor(.white)
-                    .frame(width: 60)
-                    .padding(.vertical, 10)
-                    .background(Color.red)
-                    .cornerRadius(10)
-                }
+                //uncomment for delete everything button
+//                Button(action: arViewModel.deleteAllFromFirebase) {
+//                    VStack {
+//                        Image(systemName: "trash")
+//                            .font(.system(size: 18))
+//                        Text("Delete")
+//                            .font(.caption)
+//                    }
+//                    .foregroundColor(.white)
+//                    .frame(width: 60)
+//                    .padding(.vertical, 10)
+//                    .background(Color.red)
+//                    .cornerRadius(10)
+//                }
             }
         }
         .padding(.vertical, 10)
