@@ -50,16 +50,17 @@ struct DiscoverView: View {
                     Spacer()
                     HStack {
                         Button(action: {
-                            centerUserLocation()
+                            locationManager.toggleLocationFollowing()
                             loadStickers()
                         }) {
-                            Image(systemName: "location.fill")
+                            Image(systemName: locationManager.isFollowingUser ? "location.fill" : "location")
                                 .padding()
                                 .background(Color.white)
                                 .clipShape(Circle())
                                 .shadow(radius: 4)
                         }
-                        .padding()
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 32)
                         
                         Spacer()
                     }
@@ -120,15 +121,6 @@ struct DiscoverView: View {
         }
     }
     
-    private func centerUserLocation() {
-        if let location = locationManager.location {
-            locationManager.region = MKCoordinateRegion(
-                center: location.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
-            )
-        }
-    }
-    
     private func searchLocation() {
         let searchRequest = MKLocalSearch.Request()
         searchRequest.naturalLanguageQuery = searchText
@@ -154,6 +146,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
         span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
     )
+    @Published var isFollowingUser: Bool = false
     
     override init() {
         super.init()
@@ -166,9 +159,22 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         self.location = location
-        region = MKCoordinateRegion(
-            center: location.coordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
-        )
+        
+        if isFollowingUser {
+            region = MKCoordinateRegion(
+                center: location.coordinate,
+                span: region.span // Preserve current zoom level
+            )
+        }
+    }
+    
+    func toggleLocationFollowing() {
+        isFollowingUser.toggle()
+        if isFollowingUser, let location = location {
+            region = MKCoordinateRegion(
+                center: location.coordinate,
+                span: region.span // Preserve current zoom level
+            )
+        }
     }
 }
