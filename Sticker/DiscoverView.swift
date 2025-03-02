@@ -22,17 +22,39 @@ private struct LocationGroup {
 }
 
 struct DiscoverView: View {
-    @StateObject private var locationManager = LocationManager()
+    // Moved to above with other state variables
     @State private var annotations: [StickerClusterAnnotation] = []
     @State private var searchText = ""
+    @State private var userMovedMap = false
+    // Start with a reasonable default region (San Francisco), but we'll update it with user's location ASAP
+    @StateObject private var locationManager = ARLocationManager()
+    @State private var mapRegion = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+        span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+    )
+    @State private var hasSetInitialLocation = false
     private let firebaseManager = FirebaseManager()
     
     var body: some View {
         NavigationView {
             ZStack {
-                Map(coordinateRegion: $locationManager.region,
-                    showsUserLocation: true,
-                    annotationItems: annotations) { annotation in
+                // Create a custom map binding with gesture detection
+                Map(coordinateRegion: Binding(
+                    get: { mapRegion },
+                    set: { newRegion in
+                        // If the region changed, flag it as a user interaction
+                        if abs(newRegion.center.latitude - mapRegion.center.latitude) > 0.0001 ||
+                           abs(newRegion.center.longitude - mapRegion.center.longitude) > 0.0001 ||
+                           abs(newRegion.span.latitudeDelta - mapRegion.span.latitudeDelta) > 0.001 ||
+                           abs(newRegion.span.longitudeDelta - mapRegion.span.longitudeDelta) > 0.001 {
+                            // Small threshold to avoid false positives from tiny precision changes
+                            userMovedMap = true
+                        }
+                        mapRegion = newRegion
+                    }
+                ),
+                showsUserLocation: true,
+                annotationItems: annotations) { annotation in
                     MapAnnotation(coordinate: annotation.coordinate) {
                         ZStack {
                             Circle()
@@ -46,14 +68,22 @@ struct DiscoverView: View {
                     }
                 }
                 
+                // Show loading indicator if location hasn't been set yet
+                if !hasSetInitialLocation {
+                    ProgressView("Locating...")
+                        .padding()
+                        .background(Color(.systemBackground).opacity(0.8))
+                        .cornerRadius(10)
+                }
+                
                 VStack {
                     Spacer()
                     HStack {
                         Button(action: {
-                            locationManager.toggleLocationFollowing()
+                            centerUserLocation()
                             loadStickers()
                         }) {
-                            Image(systemName: locationManager.isFollowingUser ? "location.fill" : "location")
+                            Image(systemName: "location.fill")
                                 .padding()
                                 .background(Color.white)
                                 .clipShape(Circle())
@@ -72,7 +102,39 @@ struct DiscoverView: View {
                 searchLocation()
             }
             .onAppear {
+                print("DiscoverView appeared")
+                initializeMapToUserLocation()
                 loadStickers()
+            }
+        }
+    }
+    
+    private func initializeMapToUserLocation() {
+        // Check if we already have a location from the manager
+        if let location = locationManager.location {
+            print("Using existing location for map initialization: \(location.coordinate)")
+            DispatchQueue.main.async {
+                self.mapRegion = MKCoordinateRegion(
+                    center: location.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+                )
+                self.hasSetInitialLocation = true
+            }
+        }
+        
+        // Set up callback for initial location determination or updates
+        locationManager.onFirstLocationUpdate = { location in
+            // Only update if we haven't set the location yet or the user hasn't moved the map
+            if !self.hasSetInitialLocation && !self.userMovedMap {
+                print("Received location update: \(location.coordinate)")
+                
+                DispatchQueue.main.async {
+                    self.mapRegion = MKCoordinateRegion(
+                        center: location.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+                    )
+                    self.hasSetInitialLocation = true
+                }
             }
         }
     }
@@ -121,6 +183,16 @@ struct DiscoverView: View {
         }
     }
     
+    private func centerUserLocation() {
+        if let location = locationManager.location {
+            userMovedMap = false  // Reset this flag when user explicitly centers the map
+            mapRegion = MKCoordinateRegion(
+                center: location.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+            )
+        }
+    }
+    
     private func searchLocation() {
         let searchRequest = MKLocalSearch.Request()
         searchRequest.naturalLanguageQuery = searchText
@@ -130,51 +202,12 @@ struct DiscoverView: View {
             guard let response = response else { return }
             
             if let firstItem = response.mapItems.first {
-                locationManager.region = MKCoordinateRegion(
+                userMovedMap = true  // Set this flag since the map is being moved programmatically by search
+                mapRegion = MKCoordinateRegion(
                     center: firstItem.placemark.coordinate,
                     span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
                 )
             }
-        }
-    }
-}
-
-class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
-    private let locationManager = CLLocationManager()
-    @Published var location: CLLocation?
-    @Published var region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
-        span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
-    )
-    @Published var isFollowingUser: Bool = false
-    
-    override init() {
-        super.init()
-        locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.requestWhenInUseAuthorization()
-        locationManager.startUpdatingLocation()
-    }
-    
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
-        self.location = location
-        
-        if isFollowingUser {
-            region = MKCoordinateRegion(
-                center: location.coordinate,
-                span: region.span // Preserve current zoom level
-            )
-        }
-    }
-    
-    func toggleLocationFollowing() {
-        isFollowingUser.toggle()
-        if isFollowingUser, let location = location {
-            region = MKCoordinateRegion(
-                center: location.coordinate,
-                span: region.span // Preserve current zoom level
-            )
         }
     }
 }
